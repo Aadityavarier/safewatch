@@ -1,0 +1,47 @@
+@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: 243 245 244; --surface: 255 255 255; --sunken: 233 237 236; --ink: 14 28 34; --muted: 88 104 110; --line: 220 227 226;
+  --brand: 11 110 105; --brandink: 255 255 255; --signal: 196 106 4;
+  --ok: 21 128 61; --warn: 161 110 4; --risk: 205 38 38; --info: 37 99 235;
+  --map-land: 236 240 238; --map-block: 222 229 227; --map-road: 255 255 255; --map-water: 200 222 230; --map-park: 208 229 214;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: 9 18 21; --surface: 16 28 32; --sunken: 12 22 25; --ink: 228 237 237; --muted: 143 162 166; --line: 36 53 58;
+    --brand: 45 179 169; --brandink: 3 30 28; --signal: 245 158 11;
+    --ok: 52 211 153; --warn: 250 204 21; --risk: 248 113 113; --info: 96 165 250;
+    --map-land: 19 33 37; --map-block: 26 42 47; --map-road: 38 58 64; --map-water: 17 43 56; --map-park: 20 48 38;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: 9 18 21; --surface: 16 28 32; --sunken: 12 22 25; --ink: 228 237 237; --muted: 143 162 166; --line: 36 53 58;
+  --brand: 45 179 169; --brandink: 3 30 28; --signal: 245 158 11;
+  --ok: 52 211 153; --warn: 250 204 21; --risk: 248 113 113; --info: 96 165 250;
+  --map-land: 19 33 37; --map-block: 26 42 47; --map-road: 38 58 64; --map-water: 17 43 56; --map-park: 20 48 38;
+  color-scheme: dark;
+}
+html, body, #root { height: 100%; }
+body { background: rgb(var(--bg)); color: rgb(var(--ink)); font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+h1, h2, h3 { text-wrap: balance; }
+.num { font-variant-numeric: tabular-nums; }
+.eyebrow { font-size: 11px; letter-spacing: .09em; text-transform: uppercase; font-weight: 600; color: rgb(var(--muted)); }
+:focus-visible { outline: 2px solid rgb(var(--brand)); outline-offset: 2px; border-radius: 8px; }
+.scroll-thin::-webkit-scrollbar { width: 6px; height: 6px; } .scroll-thin::-webkit-scrollbar-thumb { background: rgb(var(--line)); border-radius: 9px; }
+.card { background: rgb(var(--surface)); border: 1px solid rgb(var(--line)); border-radius: 16px; }
+.btn { display:inline-flex; align-items:center; justify-content:center; gap:.5rem; border-radius: 12px; font-weight: 600; font-size: 14px; padding: .6rem 1rem; transition: transform .12s ease, background-color .15s ease, border-color .15s; }
+.btn:active { transform: scale(.97); }
+.btn-primary { background: rgb(var(--brand)); color: rgb(var(--brandink)); }
+.btn-primary:hover { filter: brightness(1.07); }
+.btn-ghost { background: rgb(var(--surface)); border: 1px solid rgb(var(--line)); color: rgb(var(--ink)); }
+.btn-ghost:hover { border-color: rgb(var(--brand) / .5); }
+.btn:disabled { opacity: .45; pointer-events: none; }
+.chip { display:inline-flex; align-items:center; gap:.35rem; border-radius: 999px; font-size: 12px; font-weight: 600; padding: .2rem .6rem; white-space: nowrap; }
+.input { width:100%; background: rgb(var(--surface)); border: 1px solid rgb(var(--line)); border-radius: 12px; padding: .65rem .8rem; font-size: 14px; color: rgb(var(--ink)); }
+.input:focus { outline: 2px solid rgb(var(--brand) / .5); border-color: transparent; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
