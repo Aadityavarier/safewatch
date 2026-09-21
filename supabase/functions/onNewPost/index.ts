@@ -37,9 +37,14 @@ Deno.serve(async (req) => {
     const containsPII = SUSPICIOUS_PATTERNS.some((regex) => regex.test(text))
 
     if (containsPII) {
-      const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? ''
-      const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? Deno.env.get('SUPABASE_ANON_KEY') ?? ''
-      const supabase = createClient(supabaseUrl, supabaseKey)
+      const supabaseUrl = Deno.env.get('SUPABASE_URL')
+      const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+
+      if (!supabaseUrl || !serviceRoleKey) {
+        throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY in environment. onNewPost requires service-role privileges to flag posts.')
+      }
+
+      const supabase = createClient(supabaseUrl, serviceRoleKey)
 
       await supabase
         .from('posts')

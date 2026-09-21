@@ -9,6 +9,15 @@ import { YOU } from './Home'
 
 const H = 3600_000
 
+// Haversine distance in metres between two lat/lng points
+function haversineM(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6_371_000
+  const dLat = (lat2 - lat1) * Math.PI / 180
+  const dLng = (lng2 - lng1) * Math.PI / 180
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+
 export function useMapFilters(defaultRange: string = '168') {
   const [cat, setCat] = useState<Category | 'all'>('all')
   const [range, setRange] = useState(defaultRange)
@@ -17,21 +26,30 @@ export function useMapFilters(defaultRange: string = '168') {
   return { cat, setCat, range, setRange, sev, setSev, dist, setDist }
 }
 
-export function applyFilters(reports: Report[], patterns: Pattern[], f: ReturnType<typeof useMapFilters>, origin = YOU) {
-  const maxD = f.dist === 'all' ? Infinity : Number(f.dist) / 15
+export function applyFilters(reports: Report[], patterns: Pattern[], f: ReturnType<typeof useMapFilters>, origin: { lat: number; lng: number } = YOU) {
+  const maxDistM = f.dist === 'all' ? Infinity : Number(f.dist)
   const now = Date.now()
-  const rs = reports.filter((r) => (f.cat === 'all' || r.cats.includes(f.cat)) && now - r.ts <= Number(f.range) * H && Math.hypot(r.x - origin.x, r.y - origin.y) <= maxD)
-  const ps = patterns.filter((p) => (f.cat === 'all' || p.dominant === f.cat) && (f.sev === 'all' || p.strength === f.sev) && Math.hypot(p.x - origin.x, p.y - origin.y) <= maxD)
+  const rs = reports.filter((r) =>
+    (f.cat === 'all' || r.cats.includes(f.cat)) &&
+    now - r.ts <= Number(f.range) * H &&
+    haversineM(r.lat, r.lng, origin.lat, origin.lng) <= maxDistM
+  )
+  const ps = patterns.filter((p) =>
+    (f.cat === 'all' || p.dominant === f.cat) &&
+    (f.sev === 'all' || p.strength === f.sev) &&
+    haversineM(p.lat, p.lng, origin.lat, origin.lng) <= maxDistM
+  )
   return { rs, ps }
 }
 
 export default function CitizenMap() {
-  const { visible, patterns, patternStatus, go } = useStore()
+  const { visible, patterns, patternStatus, go, userLocation } = useStore()
   const f = useMapFilters()
   const [open, setOpen] = useState(false)
   const [sel, setSel] = useState<Pattern | null>(null)
   const [rep, setRep] = useState<Report | null>(null)
-  const { rs, ps } = useMemo(() => applyFilters(visible, patterns, f), [visible, patterns, f])
+  const origin = userLocation ?? YOU
+  const { rs, ps } = useMemo(() => applyFilters(visible, patterns, f, origin), [visible, patterns, f, origin])
   const active = [f.cat !== 'all', f.range !== '168', f.sev !== 'all', f.dist !== 'all'].filter(Boolean).length
 
   return (
@@ -54,8 +72,16 @@ export default function CitizenMap() {
       )}
 
       <div className="relative">
-        <SafetyMap className="h-[58vh] min-h-[380px] lg:h-[620px]" reports={rs} patterns={ps} you={YOU} selectedId={sel?.id}
-          onPattern={(p) => { setSel(p); setRep(null) }} onReport={(r) => { setRep(r); setSel(null) }} />
+        <SafetyMap
+          className="h-[58vh] min-h-[380px] lg:h-[620px]"
+          reports={rs}
+          patterns={ps}
+          youLatLng={{ lat: origin.lat, lng: origin.lng }}
+          center={[origin.lat, origin.lng]}
+          selectedId={sel?.id}
+          onPattern={(p) => { setSel(p); setRep(null) }}
+          onReport={(r) => { setRep(r); setSel(null) }}
+        />
         <div className="pointer-events-none absolute left-3 top-3 rounded-xl bg-surface/90 px-3 py-2 text-xs shadow-card backdrop-blur">
           <b className="num">{rs.length}</b> reports · <b className="num">{ps.length}</b> patterns
         </div>

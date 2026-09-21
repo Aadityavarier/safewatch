@@ -66,7 +66,7 @@ export default function PatternDetail({ p }: { p: Pattern }) {
           <div className="eyebrow mb-3">Geographic cluster</div>
           <SafetyMap className="h-56 sm:h-auto sm:flex-1" reports={visible.filter((r) => r.placeId === p.placeId)} patterns={[p]}
             anomalies={anomalies.filter((a) => a.placeId === p.placeId)} labels={false} selectedId={p.id}
-            initialZoom={{ x: Math.max(0, Math.min(1000 - 300, p.x - 150)), y: Math.max(0, Math.min(640 - 192, p.y - 96)), w: 300 }} />
+            center={[p.lat, p.lng]} zoom={16} />
         </div>
       </section>
 

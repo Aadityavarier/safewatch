@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   House, Map, Megaphone, Radar, FileText, Menu, MapPin, Siren, Moon, Sun, Monitor, LayoutDashboard, Activity, Waypoints,
-  BellRing, BarChart3, FileBarChart, Settings, X, LogOut, Compass, PlayCircle, ShieldCheck, KeyRound, Loader2, UserRound,
+  BellRing, BarChart3, FileBarChart, Settings, X, LogOut, Compass, PlayCircle, ShieldCheck, Loader2,
   MessageSquare, ShieldAlert,
 } from 'lucide-react'
 import { useStore, type Theme } from './lib/store'
@@ -81,23 +81,85 @@ function useThemeCycle() {
 }
 
 function RoleSwitch() {
-  const { go, route, toast } = useStore()
+  const { go, route, toast, authorityUser, signInAuthority } = useStore()
   const isAdmin = route.startsWith('admin')
   const [login, setLogin] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [email, setEmail] = useState('officer@safewatch.internal')
+  const [password, setPassword] = useState('')
+  const [authError, setAuthError] = useState<string | null>(null)
+
+  const handleAuthorityClick = () => {
+    if (isAdmin) return
+    if (authorityUser) {
+      go('admin')
+    } else {
+      setAuthError(null)
+      setLogin(true)
+    }
+  }
+
+  const handleSignIn = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true)
+    setAuthError(null)
+    try {
+      await signInAuthority(email, password)
+      setLogin(false)
+      setPassword('')
+      go('admin')
+      toast('Signed in as Safety Officer', 'ok')
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Authentication failed'
+      setAuthError(msg)
+      toast(msg, 'warn')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   return (
     <>
       <div className="inline-flex rounded-xl bg-sunken p-1 text-xs font-semibold" role="group" aria-label="Switch experience">
         <button onClick={() => go('')} className={cx('rounded-lg px-2.5 py-1.5', !isAdmin ? 'bg-surface shadow-card' : 'text-muted')}>Citizen</button>
-        <button onClick={() => (isAdmin ? null : setLogin(true))} className={cx('rounded-lg px-2.5 py-1.5', isAdmin ? 'bg-surface shadow-card' : 'text-muted')}>Authority</button>
+        <button onClick={handleAuthorityClick} className={cx('rounded-lg px-2.5 py-1.5', isAdmin ? 'bg-surface shadow-card' : 'text-muted')}>Authority</button>
       </div>
-      <Modal open={login} onClose={() => setLogin(false)} title="Authority sign-in (demo)">
-        <p className="-mt-2 mb-4 text-sm text-muted">Restricted to verified campus security, police and community safety teams.</p>
-        <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); setLoading(true); setTimeout(() => { setLoading(false); setLogin(false); go('admin'); toast('Signed in as Safety Officer') }, 700) }}>
-          <label className="block text-sm font-medium">Official ID<input id="login-id" className="input mt-1" defaultValue="NM-NORTH-CTRL-07" /></label>
-          <label className="block text-sm font-medium">Password<input id="login-pw" type="password" className="input mt-1" defaultValue="demo-password" /></label>
-          <div className="flex items-center gap-2 rounded-xl bg-sunken p-2.5 text-xs text-muted"><KeyRound size={14} />2-factor verification is skipped in this prototype.</div>
-          <button className="btn btn-primary w-full !py-3" disabled={loading}>{loading ? <Loader2 size={16} className="animate-spin" /> : <ShieldCheck size={16} />}Sign in as Safety Officer</button>
+      <Modal open={login} onClose={() => setLogin(false)} title="Authority Sign-in">
+        <p className="-mt-2 mb-4 text-sm text-muted">Restricted to verified campus security, police, and community safety officers.</p>
+        <form className="space-y-3" onSubmit={handleSignIn}>
+          <label className="block text-sm font-medium">
+            Official Email
+            <input
+              id="login-email"
+              type="email"
+              required
+              className="input mt-1"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="officer@safewatch.internal"
+            />
+          </label>
+          <label className="block text-sm font-medium">
+            Password
+            <input
+              id="login-pw"
+              type="password"
+              required
+              className="input mt-1"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Enter official password"
+            />
+          </label>
+          {authError && (
+            <div className="rounded-xl bg-risk/10 p-2.5 text-xs text-risk font-medium">
+              {authError}
+            </div>
+          )}
+          <button className="btn btn-primary w-full !py-3" disabled={loading}>
+            {loading ? <Loader2 size={16} className="animate-spin" /> : <ShieldCheck size={16} />}
+            {loading ? 'Authenticating…' : 'Sign in as Safety Officer'}
+          </button>
         </form>
       </Modal>
     </>
@@ -106,7 +168,7 @@ function RoleSwitch() {
 
 /* ───────── Citizen ───────── */
 function CitizenShell() {
-  const { route, go, toast } = useStore()
+  const { route, go, toast, currentLocationName, refreshLocation } = useStore()
   const [notif, setNotif] = useState(false)
   const [sos, setSos] = useState(false)
   const [menu, setMenu] = useState(false)
@@ -142,9 +204,9 @@ function CitizenShell() {
         <header className="sticky z-30 border-b border-line bg-bg/85 backdrop-blur-md" style={{ top: 'env(safe-area-inset-top, 0px)' }}>
           <div className="mx-auto flex h-16 max-w-6xl items-center gap-2 px-4">
             <div className="lg:hidden"><Logo compact /></div>
-            <button onClick={() => toast('Location refreshed · approx. North Campus', 'info')} className="flex min-w-0 items-center gap-1.5 rounded-xl px-2 py-1.5 text-left hover:bg-sunken">
+            <button onClick={() => { refreshLocation(); toast('Location refreshed', 'info') }} className="flex min-w-0 items-center gap-1.5 rounded-xl px-2 py-1.5 text-left hover:bg-sunken">
               <MapPin size={16} className="shrink-0 text-brand" />
-              <span className="min-w-0 leading-tight"><span className="block text-[10.5px] text-muted">Current area</span><span className="block truncate text-[13px] font-semibold">North Campus, Airoli</span></span>
+              <span className="min-w-0 leading-tight"><span className="block text-[10.5px] text-muted">Current area</span><span className="block truncate text-[13px] font-semibold">{currentLocationName}</span></span>
             </button>
             <div className="ml-auto flex items-center gap-1">
               <div className="hidden sm:block"><RoleSwitch /></div>
@@ -154,9 +216,8 @@ function CitizenShell() {
                 <Bellbutton onClick={() => setNotif((v) => !v)} />
                 {notif && <NotificationPanel onClose={() => setNotif(false)} />}
               </div>
-              <button onClick={() => setMenu(true)} className="flex items-center gap-1 rounded-xl p-1 hover:bg-sunken" aria-label="Menu">
-                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-brand/15 text-brand"><UserRound size={17} /></span>
-                <Menu size={18} className="mr-1" />
+              <button onClick={() => setMenu(true)} className="rounded-xl p-2 hover:bg-sunken" aria-label="Menu">
+                <Menu size={20} />
               </button>
             </div>
           </div>
@@ -201,9 +262,9 @@ function SideMenu({ open, onClose, onSos }: { open: boolean; onClose: () => void
       <div className="absolute inset-0 bg-[rgb(5_15_18/.45)]" onClick={onClose} />
       <div className="absolute right-0 top-0 flex h-full w-[min(86vw,320px)] animate-fadeUp flex-col bg-surface p-4 shadow-pop" style={{ paddingTop: 'calc(1rem + env(safe-area-inset-top, 0px))', paddingBottom: 'calc(1rem + env(safe-area-inset-bottom, 0px))' }}>
         <div className="flex items-center justify-between"><Logo /><button onClick={onClose} className="rounded-full p-1.5 hover:bg-sunken" aria-label="Close menu"><X size={18} /></button></div>
-        <div className="mt-5 flex items-center gap-3 rounded-2xl bg-sunken p-3">
-          <span className="flex h-10 w-10 items-center justify-center rounded-full bg-brand/15 text-brand"><UserRound size={20} /></span>
-          <div className="text-sm"><div className="font-semibold">Anonymous member</div><div className="font-mono text-xs text-muted">anon-me01 · verified student</div></div>
+        <div className="mt-4 flex items-center gap-2.5 rounded-xl bg-sunken px-3 py-2.5 text-xs text-muted">
+          <ShieldCheck size={16} className="text-ok shrink-0" />
+          <span>Anonymous citizen mode · No account needed</span>
         </div>
         <nav className="mt-4 space-y-1 text-sm">
           {[['feed', 'Community Feed', MessageSquare], ['around', 'Safety Around You', Compass], ['reports', 'My Reports', FileText], ['warnings', 'Early Warnings', Radar], ['map', 'Safety Map', Map]].map(([r, t, I]) => {
@@ -227,7 +288,7 @@ function SideMenu({ open, onClose, onSos }: { open: boolean; onClose: () => void
 
 /* ───────── Admin ───────── */
 function AdminShell() {
-  const { route, go, patternStatus } = useStore()
+  const { route, go, patternStatus, authorityUser, authLoading, signOutAuthority, toast } = useStore()
   const [notif, setNotif] = useState(false)
   const [drawer, setDrawer] = useState(false)
   const th = useThemeCycle()
@@ -237,6 +298,24 @@ function AdminShell() {
   const parts = route.split('/')
   const section = parts[1] ?? ''
   const sub = parts[2]
+
+  useEffect(() => {
+    if (!authLoading && !authorityUser) {
+      go('')
+      toast('Authority sign-in required to access Command.', 'warn')
+    }
+  }, [authorityUser, authLoading, go, toast])
+
+  if (authLoading || !authorityUser) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#0B1A1E] text-white">
+        <div className="flex items-center gap-2 text-sm text-white/70">
+          <Loader2 size={18} className="animate-spin text-brand" /> Verifying authority credentials…
+        </div>
+      </div>
+    )
+  }
+
   let page
   switch (section) {
     case 'live': page = <LiveReports />; break
@@ -273,7 +352,9 @@ function AdminShell() {
         <div className="flex items-center gap-2 font-semibold text-white"><ShieldCheck size={14} />Human review on</div>
         Patterns flag places, never people. Every action is logged.
       </div>
-      <button onClick={() => { go(''); onPick?.() }} className="mt-3 flex items-center gap-2 rounded-xl px-3 py-2 text-sm text-white/60 hover:bg-white/5 hover:text-white"><LogOut size={16} />Exit to citizen app</button>
+      <button onClick={async () => { await signOutAuthority(); go(''); onPick?.() }} className="mt-3 flex items-center gap-2 rounded-xl px-3 py-2 text-sm text-white/60 hover:bg-white/5 hover:text-white">
+        <LogOut size={16} />Sign out & exit
+      </button>
     </>
   )
   return (
@@ -304,7 +385,9 @@ function AdminShell() {
                 <Bellbutton onClick={() => setNotif((v) => !v)} />
                 {notif && <NotificationPanel onClose={() => setNotif(false)} />}
               </div>
-              <span className="ml-1 hidden h-8 w-8 items-center justify-center rounded-full bg-ink text-xs font-bold text-bg sm:flex">SO</span>
+              <button onClick={async () => { await signOutAuthority(); go('') }} className="ml-1 hidden items-center gap-1.5 rounded-xl border border-line px-2.5 py-1.5 text-xs font-semibold text-muted hover:bg-sunken hover:text-ink sm:flex" title="Sign out of Authority mode">
+                <LogOut size={14} />Sign out
+              </button>
             </div>
           </div>
         </header>

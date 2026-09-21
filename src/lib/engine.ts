@@ -28,6 +28,8 @@ export interface Pattern {
   zone: string
   x: number
   y: number
+  lat: number       // real geographic latitude of the zone centroid
+  lng: number       // real geographic longitude of the zone centroid
   kind: PatternKind
   title: string
   dominant: Category
@@ -124,7 +126,9 @@ export function analyse(visible: Report[]) {
     }
 
     patterns.push({
-      id: 'PT-' + place.id, placeId: place.id, place: place.name, zone: place.zone, x: cx, y: cy, kind,
+      id: 'PT-' + place.id, placeId: place.id, place: place.name, zone: place.zone, x: cx, y: cy,
+      lat: place.lat, lng: place.lng,
+      kind,
       title: `${kind === 'increased' ? 'Rise in' : 'Repeated'} ${catLabel(dominant).toLowerCase()} near ${place.name}`,
       dominant, reports: valid, excluded: burst, total: valid.length, distinct, similar, geoRelated, repeats,
       windowH, first, last, diameterM: Math.max(diameterM, 200), peak, score, strength, recent: rec, previous: prev, perDay: days,

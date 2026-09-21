@@ -1,4 +1,4 @@
-import { Megaphone, Map, Radar, FileText, ChevronRight, Info, ShieldCheck, EyeOff, MapPinned, UserX } from 'lucide-react'
+import { Megaphone, Map, Radar, FileText, ChevronRight, Info, ShieldCheck, EyeOff, MapPinned, UserX, LocateFixed, Loader2 } from 'lucide-react'
 import { useStore } from '../lib/store'
 import { areaStatus, fmtAgo, kindLabel } from '../lib/engine'
 import { catLabel } from '../lib/types'
@@ -6,7 +6,8 @@ import { cx, Skeleton, kindTone, StrengthMeter } from '../components/ui'
 import { SignalStory } from '../components/Story'
 
 export const HOME_PLACE = 'college-gate'
-export const YOU = { x: 336, y: 226 }
+// SVG x/y kept for engine backward-compat; lat/lng used for haversine distance filter + Leaflet blue dot
+export const YOU = { x: 336, y: 226, lat: 19.0270, lng: 73.0120 }
 
 const LEVEL = {
   normal: { label: 'Normal', dot: 'bg-ok', ring: 'ring-ok/25', tone: 'text-ok', bg: 'from-ok/10' },
@@ -15,41 +16,68 @@ const LEVEL = {
 }
 
 export default function Home() {
-  const { visible, patterns, go, busy, myReports, allReports } = useStore()
-  const st = areaStatus(HOME_PLACE, visible, patterns)
-  const L = LEVEL[st.level]
-  const explain = st.level === 'normal'
-    ? `${st.recent48 === 0 ? 'No' : st.recent48} report${st.recent48 === 1 ? '' : 's'} near here in the last 48 hours. No related pattern detected.`
-    : `${st.similar48 || st.pattern!.total} similar ${catLabel(st.pattern!.dominant).toLowerCase()} reports detected in this area during the last ${st.similar48 ? '48 hours' : '7 days'}.`
+  const { visible, patterns, go, busy, myReports, allReports, currentZone, currentLocationName, locationStatus, refreshLocation } = useStore()
+  const activeZoneId = currentZone?.id ?? HOME_PLACE
+  const st = areaStatus(activeZoneId, visible, patterns)
+  const L = LEVEL[currentZone ? st.level : 'normal']
+
+  const placeName = currentZone ? st.place.name : (currentLocationName.split(',')[0] || 'Your Location')
+  const placeZone = currentZone ? st.place.zone : (currentLocationName.split(',')[1]?.trim() || 'Live Area')
+
+  const explain = currentZone
+    ? (st.level === 'normal'
+        ? `${st.recent48 === 0 ? 'No' : st.recent48} report${st.recent48 === 1 ? '' : 's'} near here in the last 48 hours. No related pattern detected.`
+        : `${st.similar48 || st.pattern!.total} similar ${catLabel(st.pattern!.dominant).toLowerCase()} reports detected in this area during the last ${st.similar48 ? '48 hours' : '7 days'}.`)
+    : `No community safety reports registered in your immediate area yet. Normal baseline.`
+
   const mine = allReports.filter((r) => r.mine)
   const nearby = patterns.slice(0, 3)
   return (
     <div className="space-y-5">
-      <section className={cx('card overflow-hidden bg-gradient-to-br to-transparent p-5', L.bg)}>
-        <div className="flex items-center justify-between">
-          <div className="eyebrow">Current area safety status</div>
-          <span className="chip bg-surface text-muted ring-1 ring-line">Report-based indicator</span>
-        </div>
-        {busy ? (
-          <div className="mt-4 space-y-2"><Skeleton className="h-8 w-2/3" /><Skeleton className="h-4 w-full" /><Skeleton className="h-4 w-1/2" /></div>
-        ) : (
-          <div className="animate-fadeUp">
-            <div className="mt-3 flex items-center gap-3">
-              <span className={cx('relative flex h-4 w-4 items-center justify-center rounded-full ring-8', L.dot, L.ring)}>
-                {st.level === 'pattern' && <span className={cx('absolute inset-0 animate-ping2 rounded-full', L.dot)} />}
-              </span>
-              <h2 className={cx('font-display text-[26px] font-bold leading-tight tracking-tight', L.tone)}>{L.label}</h2>
-            </div>
-            <p className="mt-2 text-[15px]">{explain}</p>
-            <div className="mt-4 grid grid-cols-3 gap-2">
-              <Stat k={st.place.name} v={st.place.zone} />
-              <Stat k={`${st.recent48}`} v="reports · 48 h" />
-              <Stat k={st.pattern ? `${st.pattern.distinct}` : '—'} v="distinct reporters" />
-            </div>
-            <p className="mt-3 flex items-start gap-1.5 text-xs text-muted"><Info size={13} className="mt-px shrink-0" />Based on community reports, not an official assessment. It does not mean an area is objectively safe or unsafe.</p>
+      {locationStatus === 'denied' ? (
+        <section className="card overflow-hidden bg-gradient-to-br from-surface to-sunken p-5">
+          <div className="flex items-center justify-between">
+            <div className="eyebrow">Current area safety status</div>
+            <span className="chip bg-surface text-muted ring-1 ring-line">Location access off</span>
           </div>
-        )}
-      </section>
+          <div className="mt-3 space-y-2">
+            <h2 className="font-display text-lg font-bold">Location needed for live area status</h2>
+            <p className="text-sm text-muted">Showing campus default ({st.place.name}). Allow location to see safety patterns around your real location.</p>
+            <button className="btn btn-outline mt-2 text-xs" onClick={refreshLocation}>
+              <LocateFixed size={14} /> Retry location
+            </button>
+          </div>
+        </section>
+      ) : (
+        <section className={cx('card overflow-hidden bg-gradient-to-br to-transparent p-5', L.bg)}>
+          <div className="flex items-center justify-between">
+            <div className="eyebrow">Current area safety status</div>
+            <div className="flex items-center gap-2">
+              {locationStatus === 'locating' && <span className="flex items-center gap-1 text-xs text-muted"><Loader2 size={12} className="animate-spin" /> Locating…</span>}
+              <span className="chip bg-surface text-muted ring-1 ring-line">Report-based indicator</span>
+            </div>
+          </div>
+          {busy ? (
+            <div className="mt-4 space-y-2"><Skeleton className="h-8 w-2/3" /><Skeleton className="h-4 w-full" /><Skeleton className="h-4 w-1/2" /></div>
+          ) : (
+            <div className="animate-fadeUp">
+              <div className="mt-3 flex items-center gap-3">
+                <span className={cx('relative flex h-4 w-4 items-center justify-center rounded-full ring-8', L.dot, L.ring)}>
+                  {currentZone && st.level === 'pattern' && <span className={cx('absolute inset-0 animate-ping2 rounded-full', L.dot)} />}
+                </span>
+                <h2 className={cx('font-display text-[26px] font-bold leading-tight tracking-tight', L.tone)}>{L.label}</h2>
+              </div>
+              <p className="mt-2 text-[15px]">{explain}</p>
+              <div className="mt-4 grid grid-cols-3 gap-2">
+                <Stat k={placeName} v={placeZone} />
+                <Stat k={currentZone ? `${st.recent48}` : '0'} v="reports · 48 h" />
+                <Stat k={currentZone && st.pattern ? `${st.pattern.distinct}` : '—'} v="distinct reporters" />
+              </div>
+              <p className="mt-3 flex items-start gap-1.5 text-xs text-muted"><Info size={13} className="mt-px shrink-0" />Based on community reports, not an official assessment. It does not mean an area is objectively safe or unsafe.</p>
+            </div>
+          )}
+        </section>
+      )}
 
       <button onClick={() => go('report')}
         className="group flex w-full items-center gap-4 rounded-3xl bg-brand p-5 text-left text-brandink shadow-pop transition active:scale-[.98]">

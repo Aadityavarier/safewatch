@@ -11,6 +11,8 @@ export default function PostDetail({ id }: { id: string }) {
   const [comments, setComments] = useState<CommentRow[]>([])
   const [loading, setLoading] = useState(true)
   const [commentText, setCommentText] = useState('')
+  const [commentWithName, setCommentWithName] = useState(false)
+  const [commentDisplayName, setCommentDisplayName] = useState('')
   const [submittingComment, setSubmittingComment] = useState(false)
   const [hasUpvoted, setHasUpvoted] = useState(false)
 
@@ -58,10 +60,13 @@ export default function PostDetail({ id }: { id: string }) {
 
     setSubmittingComment(true)
     try {
-      const newComment = await submitComment(id, commentText.trim())
+      const nameToSubmit = commentWithName && commentDisplayName.trim() ? commentDisplayName.trim() : undefined
+      const newComment = await submitComment(id, commentText.trim(), nameToSubmit)
       setComments((prev) => [...prev, newComment])
       setCommentText('')
-      toast('Comment posted anonymously', 'ok')
+      setCommentDisplayName('')
+      setCommentWithName(false)
+      toast(nameToSubmit ? 'Comment posted' : 'Comment posted anonymously', 'ok')
     } catch {
       toast('Failed to post comment', 'warn')
     } finally {
@@ -157,10 +162,16 @@ export default function PostDetail({ id }: { id: string }) {
             <span>{hasUpvoted ? 'Confirmed' : 'I saw this too'}</span>
           </button>
 
-          <span className="flex items-center gap-1 font-mono text-xs">
-            <Lock size={12} />
-            anon-{post.reporter_hash.slice(0, 6)}
-          </span>
+          <div className="flex items-center gap-1.5 text-xs">
+            {post.display_name ? (
+              <span className="font-semibold text-ink">{post.display_name}</span>
+            ) : (
+              <span className="flex items-center gap-1 font-mono text-muted">
+                <Lock size={12} />
+                anon-{post.reporter_hash.slice(0, 6)}
+              </span>
+            )}
+          </div>
         </div>
       </article>
 
@@ -174,13 +185,31 @@ export default function PostDetail({ id }: { id: string }) {
           <textarea
             value={commentText}
             onChange={(e) => setCommentText(e.target.value)}
-            placeholder="Add an anonymous update or note..."
+            placeholder="Add an update or observation..."
             rows={2}
             maxLength={250}
             className="input w-full resize-none text-sm !py-2"
           />
+          {commentWithName && (
+            <input
+              type="text"
+              maxLength={30}
+              placeholder="Your display name (e.g. Maya R.)"
+              value={commentDisplayName}
+              onChange={(e) => setCommentDisplayName(e.target.value)}
+              className="input w-full text-xs !py-1.5"
+            />
+          )}
           <div className="flex justify-between items-center text-xs text-muted">
-            <span>Anonymous response</span>
+            <label className="flex cursor-pointer items-center gap-1.5 text-xs text-muted">
+              <input
+                type="checkbox"
+                checked={commentWithName}
+                onChange={(e) => setCommentWithName(e.target.checked)}
+                className="h-3.5 w-3.5 accent-[rgb(var(--brand))]"
+              />
+              <span>Add display name</span>
+            </label>
             <button
               type="submit"
               disabled={submittingComment || !commentText.trim()}
@@ -205,9 +234,15 @@ export default function PostDetail({ id }: { id: string }) {
             comments.map((c) => (
               <div key={c.id} className="py-3 space-y-1 text-sm">
                 <div className="flex items-center justify-between text-xs text-muted">
-                  <span className="font-mono text-[11px] text-ink flex items-center gap-1">
-                    <Lock size={10} />
-                    anon-{c.reporter_hash.slice(0, 6)}
+                  <span className="text-[11px] text-ink flex items-center gap-1">
+                    {c.display_name ? (
+                      <span className="font-semibold text-ink">{c.display_name}</span>
+                    ) : (
+                      <span className="font-mono text-muted flex items-center gap-1">
+                        <Lock size={10} />
+                        anon-{c.reporter_hash.slice(0, 6)}
+                      </span>
+                    )}
                   </span>
                   <span>{fmtAgo(new Date(c.created_at).getTime())}</span>
                 </div>

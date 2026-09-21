@@ -1,4 +1,5 @@
 import { useEffect, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { X, CheckCircle2, TriangleAlert, Info, Inbox } from 'lucide-react'
 import type { ReportStatus } from '../lib/types'
 import type { Strength, PatternStatus, PatternKind } from '../lib/engine'
@@ -37,16 +38,26 @@ export function ReportStatusChip({ s }: { s: ReportStatus }) {
 }
 
 export const strengthTone: Record<Strength, string> = { Low: 'text-warn', Medium: 'text-signal', High: 'text-risk' }
-export function StrengthMeter({ score, strength, wide = false }: { score: number; strength: Strength; wide?: boolean }) {
-  const bars = strength === 'High' ? 3 : strength === 'Medium' ? 2 : 1
+
+export function normalizeStrength(val?: string): Strength {
+  if (!val) return 'Low'
+  const v = val.toLowerCase()
+  if (v === 'high') return 'High'
+  if (v === 'medium' || v === 'rising' || v === 'watch') return 'Medium'
+  return 'Low'
+}
+
+export function StrengthMeter({ score, strength, wide = false }: { score: number; strength: Strength | string; wide?: boolean }) {
+  const norm = normalizeStrength(strength)
+  const bars = norm === 'High' ? 3 : norm === 'Medium' ? 2 : 1
   return (
-    <div className={cx('flex items-center gap-2', strengthTone[strength])} title={`Pattern strength ${score}/100`}>
+    <div className={cx('flex items-center gap-2', strengthTone[norm])} title={`Pattern strength ${score}/100`}>
       <div className="flex items-end gap-[3px]">
         {[0, 1, 2].map((i) => (
           <span key={i} className={cx('w-[5px] rounded-sm', i < bars ? 'bg-current' : 'bg-line')} style={{ height: 7 + i * 4 }} />
         ))}
       </div>
-      <span className="text-xs font-semibold">{strength}{wide && <span className="num ml-1 font-normal text-muted">· {score}</span>}</span>
+      <span className="text-xs font-semibold">{norm}{wide && <span className="num ml-1 font-normal text-muted">· {score}</span>}</span>
     </div>
   )
 }
@@ -81,18 +92,19 @@ export function Modal({ open, onClose, title, children, wide }: { open: boolean;
     return () => window.removeEventListener('keydown', k)
   }, [open, onClose])
   if (!open) return null
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4" role="dialog" aria-modal>
-      <div className="absolute inset-0 bg-[rgb(5_15_18/.55)] backdrop-blur-[2px]" onClick={onClose} />
-      <div className={cx('relative max-h-[92vh] w-full animate-fadeUp overflow-y-auto rounded-t-3xl bg-surface p-5 shadow-pop sm:rounded-3xl', wide ? 'sm:max-w-2xl' : 'sm:max-w-md')}
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6" role="dialog" aria-modal>
+      <div className="fixed inset-0 bg-[rgb(5_15_18/.65)] backdrop-blur-sm" onClick={onClose} />
+      <div className={cx('relative max-h-[90vh] w-full animate-fadeUp overflow-y-auto rounded-3xl bg-surface p-5 sm:p-6 shadow-pop', wide ? 'max-w-2xl' : 'max-w-md')}
         style={{ paddingBottom: 'calc(1.25rem + env(safe-area-inset-bottom, 0px))' }}>
         <div className="mb-4 flex items-start justify-between gap-3">
           <h3 className="font-display text-lg font-bold">{title}</h3>
-          <button onClick={onClose} className="rounded-full p-1.5 hover:bg-sunken" aria-label="Close"><X size={18} /></button>
+          <button onClick={onClose} className="rounded-full p-1.5 hover:bg-sunken text-muted hover:text-ink" aria-label="Close"><X size={18} /></button>
         </div>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
 

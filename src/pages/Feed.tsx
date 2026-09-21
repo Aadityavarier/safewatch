@@ -160,9 +160,13 @@ export default function Feed() {
                     </span>
                   </div>
 
-                  <span className="font-mono text-[11px]">
-                    anon-{p.reporter_hash.slice(0, 6)}
-                  </span>
+                  <div className="flex items-center gap-1.5 text-[11px]">
+                    {p.display_name ? (
+                      <span className="font-semibold text-ink">{p.display_name}</span>
+                    ) : (
+                      <span className="font-mono text-muted">anon-{p.reporter_hash.slice(0, 6)}</span>
+                    )}
+                  </div>
                 </div>
               </article>
             )

@@ -1,28 +1,20 @@
-import { useEffect, useState } from 'react'
-import { ChevronLeft, MapPin, Camera, Loader2, Lock } from 'lucide-react'
+import { useState } from 'react'
+import { ChevronLeft, MapPin, Camera, Loader2, Lock, UserCheck } from 'lucide-react'
 import { useStore } from '../lib/store'
-import { getZones, submitPost, type ZoneRow } from '../lib/api'
+import { submitPost, findOrCreateZone } from '../lib/api'
+import LocationPicker from '../components/LocationPicker'
 import { PageHead } from '../components/ui'
 
 export default function PostNew() {
-  const { go, toast } = useStore()
-  const [zones, setZones] = useState<ZoneRow[]>([])
-  const [zoneId, setZoneId] = useState<string>('')
+  const { go, toast, userLocation, currentLocationName } = useStore()
+  const [pt, setPt] = useState<{ lat: number; lng: number } | null>(userLocation)
+  const [placeLabel, setPlaceLabel] = useState<string>(currentLocationName)
   const [body, setBody] = useState('')
   const [photo, setPhoto] = useState<File | null>(null)
   const [preview, setPreview] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
-  const [loadingZones, setLoadingZones] = useState(true)
-
-  useEffect(() => {
-    getZones()
-      .then((data) => {
-        setZones(data)
-        if (data.length > 0) setZoneId(data[0].id)
-      })
-      .catch(() => toast('Failed to load safety zones', 'warn'))
-      .finally(() => setLoadingZones(false))
-  }, [toast])
+  const [postWithName, setPostWithName] = useState(false)
+  const [displayName, setDisplayName] = useState('')
 
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -42,15 +34,17 @@ export default function PostNew() {
       toast('Please write a message before posting', 'warn')
       return
     }
-    if (!zoneId) {
-      toast('Please select an area for this post', 'warn')
+    if (!pt) {
+      toast('Please set a location for this post', 'warn')
       return
     }
 
     setLoading(true)
     try {
-      await submitPost(zoneId, body.trim(), photo ?? undefined)
-      toast('Community post published anonymously', 'ok')
+      const zone = await findOrCreateZone(pt.lat, pt.lng, placeLabel)
+      const nameToSubmit = postWithName && displayName.trim() ? displayName.trim() : undefined
+      await submitPost(zone.id, body.trim(), photo ?? undefined, nameToSubmit)
+      toast(nameToSubmit ? 'Community notice published' : 'Community post published anonymously', 'ok')
       go('feed')
     } catch {
       toast('Failed to publish post — check connection', 'warn')
@@ -70,7 +64,7 @@ export default function PostNew() {
       </button>
 
       <PageHead
-        eyebrow="Anonymous Community Post"
+        eyebrow="Community Notice"
         title="Share Safety Notice"
         sub="Post helpful notices or observations about lighting, hazards, or suspicious activity in your area."
       />
@@ -79,24 +73,16 @@ export default function PostNew() {
         <div>
           <label className="block text-xs font-semibold text-muted mb-1.5 flex items-center gap-1">
             <MapPin size={13} className="text-brand" />
-            Select Area / Zone
+            Notice Location
           </label>
-          {loadingZones ? (
-            <div className="h-10 animate-pulse rounded-xl bg-sunken" />
-          ) : (
-            <select
-              value={zoneId}
-              onChange={(e) => setZoneId(e.target.value)}
-              className="input w-full"
-              required
-            >
-              {zones.map((z) => (
-                <option key={z.id} value={z.id}>
-                  {z.name} ({z.zone || 'Navi Mumbai'})
-                </option>
-              ))}
-            </select>
-          )}
+          <LocationPicker
+            value={pt}
+            onChange={(coords, lbl) => {
+              setPt(coords)
+              if (lbl) setPlaceLabel(lbl)
+            }}
+            label={placeLabel}
+          />
         </div>
 
         <div>
@@ -143,11 +129,42 @@ export default function PostNew() {
           )}
         </div>
 
-        <div className="rounded-xl bg-sunken p-3 text-xs text-muted flex items-start gap-2">
-          <Lock size={14} className="mt-0.5 text-brand shrink-0" />
-          <span>
-            Posts are anonymous. Your identity token is rotated weekly and no personal identifiers are attached or stored.
-          </span>
+        {/* Optional display name toggle */}
+        <div className="rounded-xl border border-line bg-surface p-3 space-y-2">
+          <label className="flex cursor-pointer items-center justify-between">
+            <span className="text-xs font-semibold flex items-center gap-1.5">
+              <UserCheck size={14} className="text-brand" />
+              Post with a display name (optional)
+            </span>
+            <input
+              type="checkbox"
+              checked={postWithName}
+              onChange={(e) => setPostWithName(e.target.checked)}
+              className="h-4 w-4 accent-[rgb(var(--brand))]"
+            />
+          </label>
+          {postWithName ? (
+            <div>
+              <input
+                type="text"
+                maxLength={40}
+                placeholder="e.g. Student Volunteer, Rohan S., Library Desk"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                className="input w-full text-xs !py-1.5"
+              />
+              <p className="mt-1 text-[11px] text-muted">
+                Your display name will appear publicly on this post. Leave unchecked to remain 100% anonymous.
+              </p>
+            </div>
+          ) : (
+            <div className="flex items-start gap-1.5 text-[11px] text-muted">
+              <Lock size={12} className="mt-0.5 text-brand shrink-0" />
+              <span>
+                Posting anonymously. An identity hash token is used and no personal identifiers are attached.
+              </span>
+            </div>
+          )}
         </div>
 
         <div className="flex justify-end gap-2 pt-2 border-t border-line">
@@ -169,6 +186,8 @@ export default function PostNew() {
                 <Loader2 size={16} className="animate-spin" />
                 Publishing…
               </>
+            ) : postWithName && displayName.trim() ? (
+              'Publish post'
             ) : (
               'Publish anonymous post'
             )}

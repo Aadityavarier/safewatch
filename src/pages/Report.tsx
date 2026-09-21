@@ -1,13 +1,12 @@
 import { useState } from 'react'
 import {
-  Megaphone, UserX, Footprints, Hourglass, Eye, Crosshair, Lightbulb, CircleHelp, ChevronLeft, ChevronRight, Check, LocateFixed,
-  Search, Camera, TriangleAlert, Lock, CheckCircle2, Map, Loader2, MapPin, ShieldCheck, Home as HomeIcon,
+  Megaphone, UserX, Footprints, Hourglass, Eye, Crosshair, Lightbulb, CircleHelp, ChevronLeft, ChevronRight, Check,
+  Camera, TriangleAlert, Lock, CheckCircle2, Map, Loader2, ShieldCheck, Home as HomeIcon,
 } from 'lucide-react'
-import { CATEGORIES, PLACES, type Category, type Report as R } from '../lib/types'
+import { CATEGORIES, PLACES, placeById, type Category, type Report as R } from '../lib/types'
 import { useStore } from '../lib/store'
-import SafetyMap from '../components/SafetyMap'
+import LocationPicker from '../components/LocationPicker'
 import { cx } from '../components/ui'
-import { YOU } from './Home'
 
 const ICONS: Record<Category, typeof Megaphone> = {
   catcalling: Megaphone, harassment: UserX, following: Footprints, loitering: Hourglass,
@@ -16,17 +15,30 @@ const ICONS: Record<Category, typeof Megaphone> = {
 const STEPS = ['What', 'Where', 'When', 'Details', 'Privacy']
 type When = 'now' | 'today' | 'yesterday' | 'custom'
 
-function nearestPlace(pt: { x: number; y: number }) {
-  return PLACES.reduce((a, b) => (Math.hypot(b.x - pt.x, b.y - pt.y) < Math.hypot(a.x - pt.x, a.y - pt.y) ? b : a))
+// Haversine distance in metres
+function haversineM(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6_371_000
+  const dLat = (lat2 - lat1) * Math.PI / 180
+  const dLng = (lng2 - lng1) * Math.PI / 180
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+
+// Find the closest PLACE to a given lat/lng using haversine
+function nearestPlace(lat: number, lng: number) {
+  return PLACES.reduce((a, b) =>
+    haversineM(b.lat, b.lng, lat, lng) < haversineM(a.lat, a.lng, lat, lng) ? b : a
+  )
 }
 
 export default function Report() {
-  const { go, submitReport } = useStore()
+  const { go, submitReport, userLocation } = useStore()
   const [step, setStep] = useState(0)
   const [cats, setCats] = useState<Category[]>([])
-  const [pt, setPt] = useState<{ x: number; y: number } | null>(null)
-  const [locating, setLocating] = useState(false)
-  const [q, setQ] = useState('')
+  // pt stores real lat/lng for location picked on map or via geolocation
+  const [pt, setPt] = useState<{ lat: number; lng: number } | null>(userLocation)
+  const [placeLabel, setPlaceLabel] = useState<string>('')
+
   const [when, setWhen] = useState<When | null>(null)
   const [custom, setCustom] = useState('')
   const [desc, setDesc] = useState('')
@@ -34,35 +46,12 @@ export default function Report() {
   const [dir, setDir] = useState('')
   const [repeat, setRepeat] = useState(false)
   const [media, setMedia] = useState<string | null>(null)
-  const [anon, setAnon] = useState(true)
   const [err, setErr] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   const [done, setDone] = useState<R | null>(null)
 
-  const place = pt ? nearestPlace(pt) : null
+  const place = pt ? nearestPlace(pt.lat, pt.lng) : null
   const toggle = (c: Category) => { setErr(null); setCats((x) => (x.includes(c) ? x.filter((y) => y !== c) : [...x, c])) }
-
-  const locate = () => {
-    setLocating(true); setErr(null)
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          // Project real coords to SVG space via the same bounding box as api.ts
-          const GEO = { minLat: 19.0100, maxLat: 19.0450, minLng: 72.9950, maxLng: 73.0300, W: 1000, H: 640 }
-          const x = Math.round(((pos.coords.longitude - GEO.minLng) / (GEO.maxLng - GEO.minLng)) * GEO.W)
-          const y = Math.round((1 - (pos.coords.latitude - GEO.minLat) / (GEO.maxLat - GEO.minLat)) * GEO.H)
-          setPt({ x: Math.max(0, Math.min(GEO.W, x)), y: Math.max(0, Math.min(GEO.H, y)) })
-          setLocating(false)
-        },
-        () => {
-          // Fallback to YOU position if geolocation denied
-          setPt({ x: YOU.x - 14, y: YOU.y - 22 }); setLocating(false)
-        }
-      )
-    } else {
-      setPt({ x: YOU.x - 14, y: YOU.y - 22 }); setLocating(false)
-    }
-  }
 
   const validate = () => {
     if (step === 0 && !cats.length) return 'Choose at least one option that describes what happened.'
@@ -79,19 +68,21 @@ export default function Report() {
     setSending(true)
     const offs = { now: 5, today: 3 * 60, yesterday: 26 * 60 }
     const ts = when === 'custom' ? new Date(custom).getTime() : Date.now() - (offs[when as keyof typeof offs] ?? 5) * 60000
-    const nearestPlace = place!
+    const nearest = place
     submitReport({
-      zoneId: nearestPlace.id,
+      zoneId: nearest?.id ?? '',
       cats,
-      placeId: nearestPlace.id,
-      x: pt!.x,
-      y: pt!.y,
+      placeId: nearest?.id ?? 'report',
+      x: nearest?.x ?? 500,
+      y: nearest?.y ?? 320,
+      lat: pt!.lat,
+      lng: pt!.lng,
       ts,
       desc: desc.trim(),
       people,
       direction: dir,
       repeat,
-      anonymous: anon,
+      anonymous: true,
       hasMedia: !!media,
     }).then((r) => {
       setSending(false); setDone(r as R)
@@ -100,9 +91,7 @@ export default function Report() {
     })
   }
 
-  if (done) return <Confirmation r={done} onMap={() => go('map')} onHome={() => go('')} />
-
-  const searchHits = q ? PLACES.filter((p) => (p.name + p.zone).toLowerCase().includes(q.toLowerCase())) : []
+  if (done) return <Confirmation r={done} label={placeLabel} onMap={() => go('map')} onHome={() => go('')} />
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -142,31 +131,16 @@ export default function Report() {
         {step === 1 && (
           <>
             <h1 className="font-display text-2xl font-bold">Where?</h1>
-            <p className="mb-4 text-sm text-muted">Tap the map to adjust. Only an approximate location is stored.</p>
-            <div className="grid gap-2 sm:grid-cols-[auto_1fr]">
-              <button className="btn btn-primary" onClick={locate} disabled={locating}>
-                {locating ? <Loader2 size={16} className="animate-spin" /> : <LocateFixed size={16} />}{locating ? 'Locating…' : 'Use current location'}
-              </button>
-              <div className="relative">
-                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
-                <input id="loc-search" className="input !pl-9" placeholder="Search a place, e.g. College Gate" value={q} onChange={(e) => setQ(e.target.value)} />
-                {searchHits.length > 0 && (
-                  <ul className="absolute inset-x-0 top-full z-20 mt-1 overflow-hidden rounded-xl border border-line bg-surface shadow-pop">
-                    {searchHits.map((p) => (
-                      <li key={p.id}><button className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-sunken" onClick={() => { setPt({ x: p.x, y: p.y }); setQ(''); setErr(null) }}>
-                        <MapPin size={14} className="text-muted" />{p.name}<span className="text-xs text-muted">· {p.zone}</span></button></li>
-                    ))}
-                  </ul>
-                )}
-                {q && !searchHits.length && <div className="absolute inset-x-0 top-full z-20 mt-1 rounded-xl border border-line bg-surface px-3 py-2 text-sm text-muted shadow-pop">No matching places. Try tapping the map instead.</div>}
-              </div>
-            </div>
-            <SafetyMap className="mt-3 h-[300px] sm:h-[360px]" reports={[]} patterns={[]} heat={false} you={YOU} pick={pt}
-              onPick={(p) => { setPt(p); setErr(null) }} initialZoom={{ x: 150, y: 90, w: 420 }} />
-            <div className="mt-3 flex min-h-[52px] items-center gap-3 rounded-2xl bg-sunken px-4 py-3 text-sm">
-              {place ? (<><CheckCircle2 className="shrink-0 text-ok" size={18} /><div><b>Location captured approximately</b><div className="text-xs text-muted">Near {place.name}, {place.zone} · ±150 m</div></div></>)
-                : <span className="text-muted">No location yet. Your exact position and home address are never shown.</span>}
-            </div>
+            <p className="mb-4 text-sm text-muted">Use your auto-detected location, or choose a different location via address search and map pin.</p>
+            <LocationPicker
+              value={pt}
+              onChange={(coords, lbl) => {
+                setPt(coords)
+                if (lbl) setPlaceLabel(lbl)
+                setErr(null)
+              }}
+              label={placeLabel}
+            />
           </>
         )}
 
@@ -196,7 +170,7 @@ export default function Report() {
               <span><b>Do not confront the person involved.</b> Report only what you observed. Avoid names or guesses about identity.</span>
             </div>
             <label className="block text-sm font-medium" htmlFor="desc">Short description</label>
-            <textarea id="desc" rows={3} maxLength={300} className="input mt-1 resize-none" placeholder="e.g. Two people waiting near the gate for a long time, watching students leave."
+            <textarea id="desc" rows={3} maxLength={300} className="input mt-1 resize-none" placeholder="e.g. Two people waiting near the gate for a long time, watching people leave."
               value={desc} onChange={(e) => setDesc(e.target.value)} />
             <div className={cx('mt-1 text-right text-xs', desc.length > 280 ? 'text-risk' : 'text-muted')}>{desc.length}/280</div>
             <div className="mt-2 grid gap-3 sm:grid-cols-2">
@@ -207,7 +181,11 @@ export default function Report() {
               </label>
               <label className="text-sm font-medium">Direction of movement
                 <select id="direction" className="input mt-1" value={dir} onChange={(e) => setDir(e.target.value)}>
-                  <option value="">Not applicable</option><option>Stayed in place</option><option>Towards main road</option><option>Towards campus</option><option>Towards station</option>
+                  <option value="">Not sure / Not applicable</option>
+                  <option value="Stayed in place">Stayed in place</option>
+                  <option value="Moving away">Moving away</option>
+                  <option value="Moving toward me">Moving toward me</option>
+                  <option value="Not sure">Not sure</option>
                 </select>
               </label>
             </div>
@@ -238,13 +216,13 @@ export default function Report() {
           <>
             <h1 className="font-display text-2xl font-bold">Privacy</h1>
             <p className="mb-4 text-sm text-muted">We collect only what's needed to spot patterns.</p>
-            <label className="flex cursor-pointer items-center gap-4 rounded-2xl border-2 border-brand bg-brand/5 p-4">
+            <div className="flex items-center gap-4 rounded-2xl border-2 border-brand/30 bg-brand/5 p-4">
               <span className="rounded-xl bg-brand p-2.5 text-brandink"><Lock size={20} /></span>
-              <span className="flex-1"><span className="block font-semibold">Report anonymously</span><span className="text-sm text-muted">Your identity is not shown publicly.</span></span>
-              <input id="anon" type="checkbox" className="peer sr-only" checked={anon} onChange={(e) => setAnon(e.target.checked)} />
-              <span className="relative h-7 w-12 rounded-full bg-line transition peer-checked:bg-brand after:absolute after:left-1 after:top-1 after:h-5 after:w-5 after:rounded-full after:bg-white after:shadow after:transition peer-checked:after:translate-x-5" />
-            </label>
-            {!anon && <p className="mt-2 text-xs text-muted">Your report will be linked to your account so the safety team can follow up. It is still never shown publicly.</p>}
+              <div className="flex-1">
+                <span className="block font-semibold">100% Anonymous Incident Report</span>
+                <span className="text-sm text-muted">No personal identity or citizen account is attached to this report.</span>
+              </div>
+            </div>
             <ul className="mt-4 space-y-2 text-sm">
               {['No name, phone number or photo of you is attached', 'Location is rounded to about 150 m', 'Other users only see aggregated patterns, never individual reporters', 'Alerts are reviewed by a person before any action'].map((t) => (
                 <li key={t} className="flex items-start gap-2"><ShieldCheck size={16} className="mt-0.5 shrink-0 text-ok" />{t}</li>
@@ -254,7 +232,7 @@ export default function Report() {
               <div className="eyebrow mb-2">Summary</div>
               <div className="grid grid-cols-[6rem_1fr] gap-y-1.5">
                 <span className="text-muted">What</span><span>{cats.map((c) => CATEGORIES.find((x) => x.id === c)!.label).join(', ')}</span>
-                <span className="text-muted">Where</span><span>Near {place?.name}</span>
+                <span className="text-muted">Where</span><span>{placeLabel || (place ? `Near ${place.name}, ${place.zone}` : `Selected Point (${pt?.lat.toFixed(3)}, ${pt?.lng.toFixed(3)})`)}</span>
                 <span className="text-muted">When</span><span>{when === 'custom' ? new Date(custom).toLocaleString('en-IN') : { now: 'Just now', today: 'Earlier today', yesterday: 'Yesterday' }[when as 'now']}</span>
                 {desc && <><span className="text-muted">Details</span><span className="line-clamp-2">{desc}</span></>}
               </div>
@@ -268,7 +246,7 @@ export default function Report() {
       <div className="sticky bottom-[calc(76px+env(safe-area-inset-bottom,0px))] mt-5 flex gap-2 bg-gradient-to-t from-bg via-bg pt-3 lg:bottom-0 lg:pb-4">
         {step > 0 && <button className="btn btn-ghost" onClick={() => { setStep(step - 1); setErr(null) }}><ChevronLeft size={16} />Back</button>}
         <button className="btn btn-primary flex-1 !py-3.5 text-base" onClick={next} disabled={sending}>
-          {sending ? <><Loader2 size={18} className="animate-spin" />Submitting securely…</> : step < 4 ? <>Continue<ChevronRight size={18} /></> : <>Submit {anon ? 'anonymous ' : ''}report</>}
+          {sending ? <><Loader2 size={18} className="animate-spin" />Submitting securely…</> : step < 4 ? <>Continue<ChevronRight size={18} /></> : <>Submit anonymous report</>}
         </button>
       </div>
       {step === 3 && <button className="mt-2 w-full text-center text-sm font-semibold text-muted" onClick={() => setStep(4)}>Skip details</button>}
@@ -276,8 +254,9 @@ export default function Report() {
   )
 }
 
-function Confirmation({ r, onMap, onHome }: { r: R; onMap: () => void; onHome: () => void }) {
-  const place = PLACES.find((p) => p.id === r.placeId)!
+function Confirmation({ r, label, onMap, onHome }: { r: R; label?: string; onMap: () => void; onHome: () => void }) {
+  const place = placeById(r.placeId)
+  const locDisplay = label || (place ? `Near ${place.name}, ${place.zone}` : 'Your Area')
   return (
     <div className="mx-auto max-w-md animate-fadeUp py-4 text-center">
       <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-ok/15 text-ok"><CheckCircle2 size={44} /></div>
@@ -286,10 +265,10 @@ function Confirmation({ r, onMap, onHome }: { r: R; onMap: () => void; onHome: (
       <div className="card mt-6 divide-y divide-line text-left text-sm">
         {[
           ['Report ID', <span className="num font-mono font-semibold">{r.id}</span>],
-          ['Approximate location', `Near ${place.name}, ${place.zone}`],
+          ['Approximate location', locDisplay],
           ['Incident category', r.cats.map((c) => CATEGORIES.find((x) => x.id === c)!.label).join(', ')],
           ['Timestamp', new Date(r.ts).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })],
-          ['Anonymous', r.anonymous ? <span className="chip bg-ok/15 text-ok"><Lock size={11} />Yes</span> : 'No (private to safety team)'],
+          ['Privacy', <span className="chip bg-ok/15 text-ok"><Lock size={11} />100% Anonymous</span>],
         ].map(([k, v]) => (
           <div key={k as string} className="flex items-center justify-between gap-3 px-4 py-3"><span className="text-muted">{k}</span><span className="text-right">{v}</span></div>
         ))}

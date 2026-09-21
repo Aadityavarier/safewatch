@@ -51,7 +51,7 @@ export function Overview() {
         <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
           <div><h3 className="font-semibold">From warning signs to preventive action</h3><p className="text-xs text-muted">How today's scattered reports became actionable signals</p></div>
           <div className="flex gap-4 text-sm">
-            <span><b className="num">{visible.filter((r) => Date.now() - r.ts < 168 * H).length}</b> <span className="text-muted">reports</span></span>
+            <span><b className="num">{a.thisWeek}</b> <span className="text-muted">reports this week</span></span>
             <span><b className="num">{patterns.length}</b> <span className="text-muted">patterns</span></span>
             <span><b className="num">{Object.values(patternStatus).filter((s) => s === 'patrol').length}</b> <span className="text-muted">actions</span></span>
           </div>
@@ -288,20 +288,65 @@ export function AdminMap() {
 }
 
 /* ───────────── Alerts ───────────── */
-export interface AlertItem { id: string; type: string; place: string; trigger: string; ts: number; strength: Strength; score: number; patternId?: string }
+export interface AlertItem {
+  id: string
+  type: string
+  place: string
+  trigger: string
+  ts: number
+  strength: Strength
+  score: number
+  patternId?: string
+  isServer?: boolean
+}
+
 export function useAlerts(): AlertItem[] {
-  const { patterns, anomalies } = useStore()
+  const { patterns, anomalies, serverAlerts } = useStore()
   return useMemo(() => {
-    const list: AlertItem[] = patterns.map((p) => ({
-      id: 'AL-' + p.id, type: `${kindLabel(p.kind)} Alert`, place: p.place, ts: p.last, strength: p.strength, score: p.score, patternId: p.id,
+    const strengthMap: Record<string, Strength> = { high: 'High', watch: 'Medium', rising: 'Medium', normal: 'Low' }
+    
+    // Official alerts from Supabase alerts table
+    const official: AlertItem[] = serverAlerts.map((sa) => {
+      const zName = sa.zones?.name ?? (sa.zone_id ? placeById(sa.zone_id)?.name : 'Nearby Area')
+      const str = strengthMap[sa.risk_level?.toLowerCase()] ?? 'Medium'
+      return {
+        id: sa.id,
+        type: `${str} Risk Alert · ${zName}`,
+        place: zName,
+        ts: new Date(sa.created_at).getTime(),
+        strength: str,
+        score: Math.round(sa.risk_score),
+        trigger: `${sa.total_flags} reports from ${sa.distinct_reporters} distinct reporters${sa.dominant_category ? ` (${catLabel(sa.dominant_category as Category)})` : ''}. Server risk score: ${Math.round(sa.risk_score)}/100.`,
+        isServer: true,
+      }
+    })
+
+    // Client-detected pattern candidates
+    const pending: AlertItem[] = patterns.map((p) => ({
+      id: 'AL-' + p.id,
+      type: `${kindLabel(p.kind)} Pattern`,
+      place: p.place,
+      ts: p.last,
+      strength: p.strength,
+      score: p.score,
+      patternId: p.id,
       trigger: `${p.total} related reports from ${p.distinct} distinct reporters within ${Math.round(p.windowH) < 72 ? Math.max(1, Math.round(p.windowH)) + ' hours' : fmtWindow(p.windowH)}.`,
+      isServer: false,
     }))
-    anomalies.forEach((a) => list.push({
-      id: 'AL-AN-' + a.placeId, type: 'Coordinated Reporting Anomaly', place: placeById(a.placeId).name, ts: a.reports[a.reports.length - 1].ts, strength: 'Low', score: 0,
+
+    anomalies.forEach((a) => pending.push({
+      id: 'AL-AN-' + a.placeId,
+      type: 'Coordinated Reporting Anomaly',
+      place: placeById(a.placeId).name,
+      ts: a.reports[a.reports.length - 1].ts,
+      strength: 'Low',
+      score: 0,
       trigger: `${a.reports.length} reports in ${a.spanMin} min from ${a.devices} overlapping source signals. Excluded from confidence.`,
+      isServer: false,
     }))
-    return list.sort((a, b) => b.ts - a.ts)
-  }, [patterns, anomalies])
+
+    return [...official, ...pending].sort((a, b) => b.ts - a.ts)
+  }, [patterns, anomalies, serverAlerts])
 }
 
 export function Alerts() {
@@ -320,50 +365,98 @@ export function Alerts() {
     return () => clearInterval(timer)
   }, [])
 
-  const list = alerts.filter((a) => { const s = alertState[a.id]?.state ?? 'open'; return filter === 'all' || (filter === 'resolved' ? s === 'resolved' : s !== 'resolved') })
+  const list = alerts.filter((a) => {
+    const s = alertState[a.id]?.state ?? 'open'
+    return filter === 'all' || (filter === 'resolved' ? s === 'resolved' : s !== 'resolved')
+  })
+
+  const officialList = list.filter((a) => a.isServer)
+  const pendingList = list.filter((a) => !a.isServer)
+
   const act = (a: AlertItem, s: AlertState, msg: string) => { setAlert(a.id, s); toast(msg) }
 
   const subText = lastScored
-    ? `Server-scored · refreshes every 15 min · last run ${fmtAgo(lastScored)}. Every alert needs a human decision.`
-    : 'Server-scored · refreshes every 15 min. Every alert needs a human decision. Actions are logged.'
+    ? `Server-scored · refreshes every 15 min · last run ${fmtAgo(lastScored)}. Official alerts require officer triage.`
+    : 'Server-scored · refreshes every 15 min. Official alerts require officer triage.'
+
+  const renderAlertCard = (a: AlertItem) => {
+    const s = alertState[a.id]?.state ?? 'open'
+    const t = alertState[a.id]?.team
+    const isAnom = a.id.startsWith('AL-AN')
+    return (
+      <article key={a.id} className={cx('card animate-fadeUp p-4', s === 'resolved' && 'opacity-70', isAnom && 'border-dashed border-signal/60')}>
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex items-center gap-2.5">
+            <span className={cx('rounded-xl p-2', isAnom ? 'bg-signal/15 text-signal' : a.strength === 'High' ? 'bg-risk/10 text-risk' : 'bg-signal/10 text-signal')}>
+              {isAnom ? <TriangleAlert size={18} /> : <Siren size={18} />}
+            </span>
+            <div>
+              <div className="font-semibold flex items-center gap-2">
+                {a.type}
+                {a.isServer && (
+                  <span className="chip bg-ok/15 text-ok text-[10px] font-semibold">Server Confirmed</span>
+                )}
+              </div>
+              <div className="text-xs text-muted">{a.place} · {fmtAgo(a.ts)}</div>
+            </div>
+          </div>
+          <AlertStateChip s={s} />
+        </div>
+        <div className="mt-3 rounded-xl bg-sunken p-3 text-sm"><span className="eyebrow mr-1">Trigger</span>{a.trigger}</div>
+        <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+          <div><div className="text-muted">Time</div><div className="num font-medium">{fmtTime(a.ts)}</div></div>
+          <div><div className="text-muted">Strength</div>{isAnom ? <span className="font-medium">Excluded</span> : <StrengthMeter score={a.score} strength={a.strength} />}</div>
+          <div><div className="text-muted">Assigned team</div><div className="font-medium">{t ?? '—'}</div></div>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-1.5 border-t border-line pt-3">
+          <button className="btn btn-ghost !px-2.5 !py-1.5 !text-xs" disabled={s !== 'open'} onClick={() => act(a, 'acknowledged', 'Alert acknowledged')}><Check size={14} />Acknowledge</button>
+          <button className="btn btn-ghost !px-2.5 !py-1.5 !text-xs" disabled={s === 'resolved'} onClick={() => { setAssign(a); setTeam(t ?? SAFETY_TEAMS[0]) }}><UserCheck size={14} />Assign</button>
+          <button className="btn btn-ghost !px-2.5 !py-1.5 !text-xs" disabled={s === 'escalated' || s === 'resolved'} onClick={() => act(a, 'escalated', 'Escalated to Women Safety Cell supervisor')}><ArrowUpRight size={14} />Escalate</button>
+          <button className="btn btn-primary !px-2.5 !py-1.5 !text-xs" disabled={s === 'resolved'} onClick={() => act(a, 'resolved', 'Alert resolved')}><CircleCheck size={14} />Resolve</button>
+          {a.patternId && <button className="ml-auto text-xs font-semibold text-brand" onClick={() => go('admin/patterns/' + a.patternId)}>View pattern</button>}
+        </div>
+      </article>
+    )
+  }
 
   return (
-    <div>
+    <div className="space-y-6">
       <PageHead eyebrow="Response" title="Alert Management" sub={subText}
         right={<Segmented value={filter} onChange={setFilter} size="sm" options={[{ v: 'active', label: 'Active' }, { v: 'resolved', label: 'Resolved' }, { v: 'all', label: 'All' }]} />} />
-      {list.length === 0 ? <Empty title={filter === 'resolved' ? 'Nothing resolved yet' : 'No active alerts'} body="Alerts appear when a pattern crosses threshold or a burst is flagged." /> : (
-        <div className="grid gap-3 lg:grid-cols-2">
-          {list.map((a) => {
-            const s = alertState[a.id]?.state ?? 'open'
-            const t = alertState[a.id]?.team
-            const isAnom = a.id.startsWith('AL-AN')
-            return (
-              <article key={a.id} className={cx('card animate-fadeUp p-4', s === 'resolved' && 'opacity-70', isAnom && 'border-dashed border-signal/60')}>
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex items-center gap-2.5">
-                    <span className={cx('rounded-xl p-2', isAnom ? 'bg-signal/15 text-signal' : a.strength === 'High' ? 'bg-risk/10 text-risk' : 'bg-signal/10 text-signal')}>{isAnom ? <TriangleAlert size={18} /> : <Siren size={18} />}</span>
-                    <div><div className="font-semibold">{a.type}</div><div className="text-xs text-muted">{a.place} · {fmtAgo(a.ts)}</div></div>
-                  </div>
-                  <AlertStateChip s={s} />
+
+      {list.length === 0 ? (
+        <Empty title={filter === 'resolved' ? 'Nothing resolved yet' : 'No active alerts'} body="Alerts appear when the server scoring engine evaluates incident clusters or when patterns cross thresholds." />
+      ) : (
+        <>
+          {officialList.length > 0 && (
+            <section className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold text-sm">Official Alerts (Server Scored)</h3>
+                <span className="text-xs text-muted">{officialList.length} alert{officialList.length === 1 ? '' : 's'}</span>
+              </div>
+              <div className="grid gap-3 lg:grid-cols-2">
+                {officialList.map(renderAlertCard)}
+              </div>
+            </section>
+          )}
+
+          {pendingList.length > 0 && (
+            <section className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="font-semibold text-sm">Pending Server Scoring (Local Pattern Signals)</h3>
+                  <p className="text-xs text-muted">Detected in client analysis; queued for the next 15-minute Edge Function evaluation.</p>
                 </div>
-                <div className="mt-3 rounded-xl bg-sunken p-3 text-sm"><span className="eyebrow mr-1">Trigger</span>{a.trigger}</div>
-                <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
-                  <div><div className="text-muted">Time</div><div className="num font-medium">{fmtTime(a.ts)}</div></div>
-                  <div><div className="text-muted">Strength</div>{isAnom ? <span className="font-medium">Excluded</span> : <StrengthMeter score={a.score} strength={a.strength} />}</div>
-                  <div><div className="text-muted">Assigned team</div><div className="font-medium">{t ?? '—'}</div></div>
-                </div>
-                <div className="mt-3 flex flex-wrap gap-1.5 border-t border-line pt-3">
-                  <button className="btn btn-ghost !px-2.5 !py-1.5 !text-xs" disabled={s !== 'open'} onClick={() => act(a, 'acknowledged', 'Alert acknowledged')}><Check size={14} />Acknowledge</button>
-                  <button className="btn btn-ghost !px-2.5 !py-1.5 !text-xs" disabled={s === 'resolved'} onClick={() => { setAssign(a); setTeam(t ?? SAFETY_TEAMS[0]) }}><UserCheck size={14} />Assign</button>
-                  <button className="btn btn-ghost !px-2.5 !py-1.5 !text-xs" disabled={s === 'escalated' || s === 'resolved'} onClick={() => act(a, 'escalated', 'Escalated to Women Safety Cell supervisor')}><ArrowUpRight size={14} />Escalate</button>
-                  <button className="btn btn-primary !px-2.5 !py-1.5 !text-xs" disabled={s === 'resolved'} onClick={() => act(a, 'resolved', 'Alert resolved')}><CircleCheck size={14} />Resolve</button>
-                  {a.patternId && <button className="ml-auto text-xs font-semibold text-brand" onClick={() => go('admin/patterns/' + a.patternId)}>View pattern</button>}
-                </div>
-              </article>
-            )
-          })}
-        </div>
+                <span className="text-xs text-muted">{pendingList.length} signal{pendingList.length === 1 ? '' : 's'}</span>
+              </div>
+              <div className="grid gap-3 lg:grid-cols-2">
+                {pendingList.map(renderAlertCard)}
+              </div>
+            </section>
+          )}
+        </>
       )}
+
       <Modal open={!!assign} onClose={() => setAssign(null)} title="Assign alert">
         <p className="mb-3 text-sm text-muted">{assign?.type} · {assign?.place}</p>
         <div className="space-y-1.5">
@@ -388,7 +481,7 @@ export function Analytics() {
   const a = buildAnalytics(visible, patterns.length)
   return (
     <div className="space-y-4">
-      <PageHead eyebrow="Insights" title="Analytics" sub="All figures are derived from the same mock dataset shown across the prototype." />
+      <PageHead eyebrow="Insights" title="Analytics" sub="All figures are derived live from community incident reports over the active 30-day window." />
       <ChartCard title="The core problem, visualised" sub="Why early, small signals matter"><ApproachCompare /></ChartCard>
       <div className="grid gap-4 lg:grid-cols-2">
         <ChartCard title="1 · Reports by day" sub="Last 30 days"><TrendChart data={a.days} /></ChartCard>

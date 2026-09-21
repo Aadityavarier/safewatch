@@ -40,9 +40,14 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? ''
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? Deno.env.get('SUPABASE_ANON_KEY') ?? ''
-    const supabase = createClient(supabaseUrl, supabaseKey)
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+
+    if (!supabaseUrl || !serviceRoleKey) {
+      throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY in environment. scoreZones requires service-role privileges to write to zones and alerts.')
+    }
+
+    const supabase = createClient(supabaseUrl, serviceRoleKey)
 
     // 1. Fetch zones
     const { data: zones, error: zoneErr } = await supabase.from('zones').select('id, name, slug')
@@ -67,18 +72,36 @@ Deno.serve(async (req) => {
 
     for (const zone of zones || []) {
       const zoneFlags = flagsByZone.get(zone.id) || []
-      if (zoneFlags.length < 4) continue
+      if (zoneFlags.length < 4) {
+        await supabase
+          .from('zones')
+          .update({ risk_score: 0, risk_level: 'normal' })
+          .eq('id', zone.id)
+        continue
+      }
 
       const burst = detectBurst(zoneFlags)
       const valid = zoneFlags.filter((f) => !burst.includes(f))
 
       const distinct = new Set(valid.map((f) => f.reporter_hash)).size
-      if (distinct < 3 || valid.length < 4) continue
+      if (distinct < 3 || valid.length < 4) {
+        await supabase
+          .from('zones')
+          .update({ risk_score: 0, risk_level: 'normal' })
+          .eq('id', zone.id)
+        continue
+      }
 
       const catCounts = new Map<string, number>()
       valid.forEach((f) => catCounts.set(f.category, (catCounts.get(f.category) || 0) + 1))
       const [dominant, similar] = [...catCounts.entries()].sort((a, b) => b[1] - a[1])[0] || ['other', 0]
-      if (similar < 3) continue
+      if (similar < 3) {
+        await supabase
+          .from('zones')
+          .update({ risk_score: 0, risk_level: 'normal' })
+          .eq('id', zone.id)
+        continue
+      }
 
       const timestamps = valid.map((f) => new Date(f.created_at).getTime())
       const first = Math.min(...timestamps)
@@ -100,7 +123,9 @@ Deno.serve(async (req) => {
         )
       )
 
-      const risk_level = score >= 80 ? 'High' : score >= 55 ? 'Medium' : 'Low'
+      // Consistent vocabulary across engine, UI, and DB:
+      // 'normal' for unalerted baseline, 'Medium' (score 55-79), 'High' (score 80+)
+      const risk_level = score >= 80 ? 'High' : score >= 55 ? 'Medium' : 'normal'
 
       // Update zone score
       await supabase

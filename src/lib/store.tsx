@@ -1,15 +1,18 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import type { User } from '@supabase/supabase-js'
 import { supabase, SUPABASE_MISSING } from './supabaseClient'
 import { getReporterHash, getReporterHashSync } from './identity'
-import { getAllFlagsAsReports, submitFlag } from './api'
+import { getAllFlagsAsReports, getAlerts, submitFlag, type AlertRow } from './api'
 import { analyse, type PatternStatus } from './engine'
-import type { Report, ReportStatus, Category } from './types'
+import { PLACES, type Report, type ReportStatus, type Category, type Place } from './types'
+import { reverseGeocode } from './geocoding'
 
 export type Role = 'citizen' | 'admin'
 export type AlertState = 'open' | 'acknowledged' | 'assigned' | 'escalated' | 'resolved'
 export interface Notif { id: string; text: string; ts: number; read: boolean; tone: 'pattern' | 'report' | 'alert' | 'status' }
 export interface Toast { id: number; text: string; tone?: 'ok' | 'warn' | 'info' }
 export type Theme = 'system' | 'light' | 'dark'
+export type LocationStatus = 'prompt' | 'locating' | 'granted' | 'denied'
 
 interface Persisted {
   role: Role
@@ -36,27 +39,131 @@ function load(): Persisted {
   return defaults
 }
 
+function haversineM(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6_371_000
+  const dLat = (lat2 - lat1) * Math.PI / 180
+  const dLng = (lng2 - lng1) * Math.PI / 180
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+
+const MAX_SNAP_METERS = 2000 // 2 km cutoff
+
+function findNearestPlaceWithinThreshold(lat: number, lng: number, maxMeters = MAX_SNAP_METERS): { place: Place | null; distance: number } {
+  let closest: Place | null = null
+  let minDistance = Infinity
+  for (const p of PLACES) {
+    const d = haversineM(p.lat, p.lng, lat, lng)
+    if (d < minDistance) {
+      minDistance = d
+      closest = p
+    }
+  }
+  return {
+    place: minDistance <= maxMeters ? closest : null,
+    distance: minDistance,
+  }
+}
+
 function useStoreValue() {
   const [s, setS] = useState<Persisted>(load)
   const [toasts, setToasts] = useState<Toast[]>([])
   const [route, setRouteState] = useState<string>(() => (typeof location !== 'undefined' && location.hash.slice(1)) || '')
   const [allReports, setAllReports] = useState<Report[]>([])
+  const [serverAlerts, setServerAlerts] = useState<AlertRow[]>([])
   const [loading, setLoading] = useState(true)
   const [connectionError, setConnectionError] = useState<string | null>(
     SUPABASE_MISSING ? 'Supabase credentials are missing. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your .env file.' : null
   )
   const reporterHashRef = useRef<string>('')
 
+  // Geolocation & Current Zone State
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
+  const [currentZone, setCurrentZone] = useState<Place | null>(null)
+  const [currentLocationName, setCurrentLocationName] = useState<string>('Locating area…')
+  const [locationStatus, setLocationStatus] = useState<LocationStatus>('prompt')
+
+  // Supabase Auth State (for Authority mode)
+  const [authorityUser, setAuthorityUser] = useState<User | null>(null)
+  const [authLoading, setAuthLoading] = useState(true)
+
   useEffect(() => { try { localStorage.setItem(KEY, JSON.stringify(s)) } catch { /* ignore */ } }, [s])
   useEffect(() => {
     const el = document.documentElement
     if (s.theme === 'system') el.removeAttribute('data-theme'); else el.setAttribute('data-theme', s.theme)
   }, [s.theme])
+  useEffect(() => {
+    const onHash = () => setRouteState(window.location.hash.slice(1))
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
+  }, [])
+
+  // Geolocation request flow
+  const refreshLocation = useCallback(() => {
+    if (!navigator.geolocation) {
+      setLocationStatus('denied')
+      setCurrentLocationName('Location access off')
+      return
+    }
+    setLocationStatus('locating')
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude }
+        setUserLocation(coords)
+        const { place } = findNearestPlaceWithinThreshold(coords.lat, coords.lng, MAX_SNAP_METERS)
+        if (place) {
+          setCurrentZone(place)
+          setCurrentLocationName(`${place.name}, ${place.zone}`)
+        } else {
+          setCurrentZone(null)
+          try {
+            const geo = await reverseGeocode(coords.lat, coords.lng)
+            setCurrentLocationName(`${geo.name}, ${geo.zone}`)
+          } catch {
+            setCurrentLocationName(`Area (${coords.lat.toFixed(3)}, ${coords.lng.toFixed(3)})`)
+          }
+        }
+        setLocationStatus('granted')
+      },
+      () => {
+        setLocationStatus('denied')
+        setCurrentLocationName('Location access off')
+      },
+      { timeout: 8000, enableHighAccuracy: true }
+    )
+  }, [])
+
+  // Request location once on initial mount
+  useEffect(() => {
+    refreshLocation()
+  }, [refreshLocation])
+
+  // Auth session listener
+  useEffect(() => {
+    if (SUPABASE_MISSING || !supabase) {
+      setAuthLoading(false)
+      return
+    }
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setAuthorityUser(session?.user ?? null)
+      setAuthLoading(false)
+    })
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAuthorityUser(session?.user ?? null)
+      setAuthLoading(false)
+    })
+    return () => subscription.unsubscribe()
+  }, [])
 
   const fetchAllReports = useCallback(async () => {
     try {
-      const reports = await getAllFlagsAsReports(168)
+      // 720 hours = 30 days of data for accurate analytics
+      const [reports, alerts] = await Promise.all([
+        getAllFlagsAsReports(720),
+        getAlerts().catch(() => [] as AlertRow[]),
+      ])
       setAllReports(reports)
+      setServerAlerts(alerts)
       setConnectionError(null)
     } catch (e) {
       setConnectionError(e instanceof Error ? e.message : 'Could not connect to Supabase.')
@@ -78,6 +185,9 @@ function useStoreValue() {
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'flags' }, () => {
         fetchAllReports()
       })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'alerts' }, () => {
+        getAlerts().then(setServerAlerts).catch(() => {})
+      })
       .subscribe()
     return () => { supabase?.removeChannel(channel) }
   }, [fetchAllReports])
@@ -97,10 +207,14 @@ function useStoreValue() {
   const patch = useCallback((p: Partial<Persisted> | ((x: Persisted) => Partial<Persisted>)) =>
     setS((prev) => ({ ...prev, ...(typeof p === 'function' ? p(prev) : p) })), [])
 
+  // Deduplicated toast system: replaces any existing toast with the same message
   const toast = useCallback((text: string, tone: Toast['tone'] = 'ok') => {
     const id = Date.now() + Math.random()
-    setToasts((t) => [...t, { id, text, tone }])
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3200)
+    setToasts((prev) => {
+      const filtered = prev.filter((t) => t.text !== text)
+      return [...filtered, { id, text, tone }]
+    })
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4000)
   }, [])
 
   const notify = useCallback((text: string, tone: Notif['tone']) =>
@@ -119,6 +233,8 @@ function useStoreValue() {
     placeId: string
     x: number
     y: number
+    lat: number
+    lng: number
     ts: number
     desc: string
     repeat?: boolean
@@ -132,6 +248,8 @@ function useStoreValue() {
     try {
       const row = await submitFlag({
         zoneId: params.zoneId,
+        lat: params.lat,
+        lng: params.lng,
         category: params.cats[0],
         description: params.desc,
         repeat: params.repeat,
@@ -142,16 +260,25 @@ function useStoreValue() {
       notify('Your anonymous report has been received.', 'report')
       const optimistic: Report = {
         id: row.id, cats: params.cats, placeId: params.placeId,
-        x: params.x, y: params.y, ts: new Date(row.created_at).getTime(),
+        x: params.x, y: params.y, lat: params.lat, lng: params.lng,
+        ts: new Date(row.created_at).getTime(),
         reporter: getReporterHashSync(), device: getReporterHashSync(),
         status: 'received', desc: params.desc, repeat: params.repeat,
         people: params.people, direction: params.direction,
-        mine: true, anonymous: params.anonymous, hasMedia: params.hasMedia,
+        mine: true, anonymous: true, hasMedia: params.hasMedia,
       }
       setAllReports((prev) => [optimistic, ...prev])
       return optimistic
-    } catch (e) {
-      toast('Report failed — check your connection.', 'warn')
+    } catch (e: unknown) {
+      const rawMsg = e instanceof Error ? e.message : String(e)
+      // Clean, user-friendly rate limit or database error presentation
+      let displayMsg = rawMsg
+      if (rawMsg.toLowerCase().includes('rate limit') || rawMsg.toLowerCase().includes('cooldown')) {
+        displayMsg = 'Rate limit exceeded: you have already submitted a report for this area in the last 24 hours.'
+      } else if (rawMsg.toLowerCase().includes('network') || rawMsg.toLowerCase().includes('fetch')) {
+        displayMsg = 'Network error: please check your connection and try again.'
+      }
+      toast(displayMsg, 'warn')
       throw e
     }
   }, [patch, notify, toast])
@@ -170,10 +297,31 @@ function useStoreValue() {
   const setReportStatus = useCallback((id: string, st: ReportStatus) =>
     patch((x) => ({ statusOverride: { ...x.statusOverride, [id]: st } })), [patch])
 
+  // Authority Auth functions
+  const signInAuthority = useCallback(async (email: string, pw: string) => {
+    if (!supabase) throw new Error('Supabase client missing')
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password: pw })
+    if (error) throw error
+    setAuthorityUser(data.user)
+    patch({ role: 'admin' })
+    return data.user
+  }, [patch])
+
+  const signOutAuthority = useCallback(async () => {
+    if (!supabase) return
+    await supabase.auth.signOut()
+    setAuthorityUser(null)
+    patch({ role: 'citizen' })
+    go('')
+  }, [patch, go])
+
   return {
     ...s, patch, toast, toasts, route, go,
     allReports, visible, myReports, ...analysis,
+    serverAlerts,
     loading, busy: loading, connectionError,
+    userLocation, currentZone, currentLocationName, locationStatus, refreshLocation,
+    authorityUser, authLoading, signInAuthority, signOutAuthority,
     submitReport, setPatternStatus, setAlert, setReportStatus, notify,
   }
 }
