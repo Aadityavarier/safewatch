@@ -19,7 +19,7 @@ const H = 3600_000
 
 /* ───────────── Overview ───────────── */
 export function Overview() {
-  const { visible, patterns, anomalies, alertState, patternStatus, go, busy } = useStore()
+  const { visible, patterns, anomalies, alertState, patternStatus, go, busy, officerLocation, captureOfficerLocation } = useStore()
   const a = buildAnalytics(visible, patterns.length)
   const alerts = useAlerts()
   const emerging = alerts.filter((x) => (alertState[x.id]?.state ?? 'open') !== 'resolved' && x.strength !== 'Low').length
@@ -34,8 +34,28 @@ export function Overview() {
   ]
   return (
     <div className="space-y-5">
-      <PageHead eyebrow="Command overview" title={`Good ${new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 17 ? 'afternoon' : 'evening'}, Control Room`} sub={`Live picture for Navi Mumbai North · updated ${new Date().toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}`}
-        right={<button className="btn btn-primary" onClick={() => go('admin/patterns')}><Radar size={16} />Open pattern detection</button>} />
+      <PageHead
+        eyebrow="Command overview"
+        title={`Good ${new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 17 ? 'afternoon' : 'evening'}, Control Room`}
+        sub={`Live picture for Navi Mumbai North · updated ${new Date().toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}`}
+        right={
+          <div className="flex flex-wrap items-center gap-2">
+            {officerLocation ? (
+              <span className="flex items-center gap-1.5 rounded-xl border border-ok/30 bg-ok/10 px-2.5 py-1.5 text-xs font-semibold text-ok" title={`GPS: ${officerLocation.lat.toFixed(4)}, ${officerLocation.lng.toFixed(4)}`}>
+                <span className="h-2 w-2 animate-pulse rounded-full bg-ok" />
+                Officer GPS active (5 km proximity watch)
+              </span>
+            ) : (
+              <button onClick={captureOfficerLocation} className="btn btn-outline !py-1.5 !px-2.5 text-xs">
+                Activate officer GPS
+              </button>
+            )}
+            <button className="btn btn-primary" onClick={() => go('admin/patterns')}>
+              <Radar size={16} />Open pattern detection
+            </button>
+          </div>
+        }
+      />
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
         {stats.map((s, i) => (
           <div key={s.t} className={cx('card p-4', i === 0 && 'col-span-2 md:col-span-1')}>
@@ -277,9 +297,20 @@ export function AdminMap() {
           ))}
         </div>
       </div>
-      <div className="relative min-h-[420px] flex-1">
-        <SafetyMap className="absolute inset-0" reports={rs} patterns={ps} anomalies={anomalies} heat={layers.heat} showReports={layers.reports} showPatterns={layers.patterns}
-          observation={layers.observe ? observation : []} selectedId={sel?.id} onPattern={setSel} onAnomaly={() => go('admin/patterns')} />
+      <div className="relative">
+        <SafetyMap
+          className="h-[60vh] min-h-[460px] lg:h-[640px] w-full"
+          reports={rs}
+          patterns={ps}
+          anomalies={anomalies}
+          heat={layers.heat}
+          showReports={layers.reports}
+          showPatterns={layers.patterns}
+          observation={layers.observe ? observation : []}
+          selectedId={sel?.id}
+          onPattern={setSel}
+          onAnomaly={() => go('admin/patterns')}
+        />
         {sel && <PatternPopup p={sel} status={patternStatus[sel.id] ?? 'new'} onClose={() => setSel(null)} onOpen={() => go('admin/patterns/' + sel.id)} cta="Open pattern" />}
       </div>
       <div className="mt-3"><MapLegend anomaly observation /></div>
@@ -501,7 +532,7 @@ export function Briefings() {
   const [gen, setGen] = useState<string | null>(null)
   const docs = [
     { t: 'Weekly Safety Pattern Brief', d: `Covers ${patterns.length} active patterns, trends and actions`, when: 'Every Monday 9:00' },
-    { t: 'Campus Security Handover', d: 'Night-shift summary for North & South Campus', when: 'Daily 18:00' },
+    { t: 'Municipal Safety Handover', d: 'Night-shift summary for North & South sectors', when: 'Daily 18:00' },
     { t: 'Infrastructure Issues Digest', d: 'Unsafe-location reports for the municipal lighting team', when: 'Weekly' },
     { t: 'Monthly Community Transparency Report', d: 'Aggregated public figures — no individual data', when: 'Monthly' },
   ]

@@ -93,7 +93,7 @@ export function Modal({ open, onClose, title, children, wide }: { open: boolean;
   }, [open, onClose])
   if (!open) return null
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6" role="dialog" aria-modal>
+    <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4 sm:p-6" role="dialog" aria-modal>
       <div className="fixed inset-0 bg-[rgb(5_15_18/.65)] backdrop-blur-sm" onClick={onClose} />
       <div className={cx('relative max-h-[90vh] w-full animate-fadeUp overflow-y-auto rounded-3xl bg-surface p-5 sm:p-6 shadow-pop', wide ? 'max-w-2xl' : 'max-w-md')}
         style={{ paddingBottom: 'calc(1.25rem + env(safe-area-inset-bottom, 0px))' }}>
@@ -111,7 +111,7 @@ export function Modal({ open, onClose, title, children, wide }: { open: boolean;
 export function Drawer({ open, onClose, children }: { open: boolean; onClose: () => void; children: ReactNode }) {
   if (!open) return null
   return (
-    <div className="fixed inset-0 z-40 flex justify-end">
+    <div className="fixed inset-0 z-[1900] flex justify-end">
       <div className="absolute inset-0 bg-[rgb(5_15_18/.45)]" onClick={onClose} />
       <div className="relative h-full w-full max-w-2xl animate-fadeUp overflow-y-auto bg-bg shadow-pop scroll-thin"
         style={{ paddingTop: 'env(safe-area-inset-top, 0px)', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>

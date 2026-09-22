@@ -42,7 +42,7 @@ export default function Home() {
           </div>
           <div className="mt-3 space-y-2">
             <h2 className="font-display text-lg font-bold">Location needed for live area status</h2>
-            <p className="text-sm text-muted">Showing campus default ({st.place.name}). Allow location to see safety patterns around your real location.</p>
+            <p className="text-sm text-muted">Showing default civic center ({st.place.name}). Allow location to see safety patterns around your real location.</p>
             <button className="btn btn-outline mt-2 text-xs" onClick={refreshLocation}>
               <LocateFixed size={14} /> Retry location
             </button>

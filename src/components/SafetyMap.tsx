@@ -17,7 +17,7 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 })
 
-// Default campus centre — Navi Mumbai area
+// Default map centre — Navi Mumbai civic area
 const DEFAULT_CENTER: [number, number] = [19.0270, 73.0130]
 const DEFAULT_ZOOM = 15
 
@@ -48,6 +48,8 @@ export interface MapProps {
   initialZoom?: { x: number; y: number; w: number }
   className?: string
   labels?: boolean
+  interactive?: boolean
+  compact?: boolean
 }
 
 // Invisible click-capture layer for pick mode
@@ -67,6 +69,15 @@ function ViewSetter({ center, zoom }: { center: [number, number]; zoom: number }
   const map = useMap()
   const prevCenter = useRef<[number, number]>(center)
   const prevZoom = useRef<number>(zoom)
+
+  useEffect(() => {
+    // Invalidate size on initial mount and when dimensions settle
+    const timer = setTimeout(() => {
+      try { map.invalidateSize() } catch { /* ignore */ }
+    }, 100)
+    return () => clearTimeout(timer)
+  }, [map])
+
   useEffect(() => {
     if (prevCenter.current[0] !== center[0] || prevCenter.current[1] !== center[1] || prevZoom.current !== zoom) {
       map.setView(center, zoom, { animate: true })
@@ -105,7 +116,7 @@ export default function SafetyMap(props: MapProps) {
     observation = [], selectedId, onPattern, onReport, onAnomaly,
     pick, onPick, onPickLatLng, pickLatLng, you, youLatLng,
     center, zoom = DEFAULT_ZOOM,
-    className,
+    className, interactive = true, compact = false,
   } = props
 
   const C = useColors()
@@ -128,8 +139,12 @@ export default function SafetyMap(props: MapProps) {
         center={effectiveCenter}
         zoom={zoom}
         className="h-full w-full"
-        zoomControl={true}
-        attributionControl={true}
+        zoomControl={interactive && !compact}
+        attributionControl={!compact}
+        dragging={interactive}
+        scrollWheelZoom={interactive}
+        doubleClickZoom={interactive}
+        touchZoom={interactive}
       >
         <TileLayer
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -138,7 +153,7 @@ export default function SafetyMap(props: MapProps) {
         />
 
         <ViewSetter center={effectiveCenter} zoom={zoom} />
-        <RecenterControl target={youPos} />
+        {interactive && !compact && <RecenterControl target={youPos} />}
 
         {(onPick || onPickLatLng) && <PickLayer onPick={onPick} onPickLatLng={onPickLatLng} />}
 

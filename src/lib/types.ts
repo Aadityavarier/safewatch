@@ -26,15 +26,15 @@ export interface Place { id: string; name: string; zone: string; x: number; y: n
 // SVG x/y are derived from the 1000×640 projection (used by engine for intra-cluster geometry).
 // Real lat/lng are used by Leaflet rendering and haversine distance calculations.
 export const PLACES: Place[] = [
-  { id: 'college-gate',    name: 'College Gate',         zone: 'North Campus',  x: 318, y: 196, lat: 19.0320, lng: 73.0095 },
+  { id: 'college-gate',    name: 'Central Plaza',        zone: 'Sector 12',     x: 318, y: 196, lat: 19.0320, lng: 73.0095 },
   { id: 'station-road',    name: 'Station Road',          zone: 'Sector 3',      x: 640, y: 318, lat: 19.0260, lng: 73.0190 },
   { id: 'market-entrance', name: 'Market Entrance',       zone: 'Old Market',    x: 470, y: 452, lat: 19.0195, lng: 73.0130 },
-  { id: 'hostel-road',     name: 'Hostel Road',           zone: 'South Campus',  x: 212, y: 404, lat: 19.0215, lng: 73.0055 },
+  { id: 'hostel-road',     name: 'Residential Enclave',   zone: 'Sector 15',     x: 212, y: 404, lat: 19.0215, lng: 73.0055 },
   { id: 'bus-underpass',   name: 'Bus Depot Underpass',   zone: 'Sector 5',      x: 812, y: 180, lat: 19.0325, lng: 73.0245 },
-  { id: 'library-lane',    name: 'Library Lane',          zone: 'North Campus',  x: 402, y: 126, lat: 19.0355, lng: 73.0115 },
+  { id: 'library-lane',    name: 'Civic Center Walk',     zone: 'Sector 10',     x: 402, y: 126, lat: 19.0355, lng: 73.0115 },
   { id: 'metro-exit',      name: 'Metro Exit B',          zone: 'Sector 3',      x: 736, y: 420, lat: 19.0210, lng: 73.0220 },
   { id: 'lake-promenade',  name: 'Lake Promenade',        zone: 'Waterfront',    x: 116, y: 560, lat: 19.0145, lng: 73.0010 },
-  { id: 'tuition-hub',     name: 'Tuition Hub Lane',      zone: 'Sector 7',      x: 574, y: 142, lat: 19.0345, lng: 73.0165 },
+  { id: 'tuition-hub',     name: 'Commercial Avenue',     zone: 'Sector 7',      x: 574, y: 142, lat: 19.0345, lng: 73.0165 },
   { id: 'park-street',     name: 'Park Street',           zone: 'Sector 8',      x: 900, y: 520, lat: 19.0165, lng: 73.0280 },
 ]
 const DYNAMIC_PLACES = new Map<string, Place>()

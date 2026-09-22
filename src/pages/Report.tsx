@@ -43,7 +43,6 @@ export default function Report() {
   const [custom, setCustom] = useState('')
   const [desc, setDesc] = useState('')
   const [people, setPeople] = useState('')
-  const [dir, setDir] = useState('')
   const [repeat, setRepeat] = useState(false)
   const [media, setMedia] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
@@ -80,7 +79,6 @@ export default function Report() {
       ts,
       desc: desc.trim(),
       people,
-      direction: dir,
       repeat,
       anonymous: true,
       hasMedia: !!media,
@@ -173,19 +171,10 @@ export default function Report() {
             <textarea id="desc" rows={3} maxLength={300} className="input mt-1 resize-none" placeholder="e.g. Two people waiting near the gate for a long time, watching people leave."
               value={desc} onChange={(e) => setDesc(e.target.value)} />
             <div className={cx('mt-1 text-right text-xs', desc.length > 280 ? 'text-risk' : 'text-muted')}>{desc.length}/280</div>
-            <div className="mt-2 grid gap-3 sm:grid-cols-2">
+            <div className="mt-2">
               <label className="text-sm font-medium">People involved
                 <select id="people" className="input mt-1" value={people} onChange={(e) => setPeople(e.target.value)}>
                   <option value="">Not sure</option><option>1</option><option>2</option><option>3–5</option><option>More than 5</option>
-                </select>
-              </label>
-              <label className="text-sm font-medium">Direction of movement
-                <select id="direction" className="input mt-1" value={dir} onChange={(e) => setDir(e.target.value)}>
-                  <option value="">Not sure / Not applicable</option>
-                  <option value="Stayed in place">Stayed in place</option>
-                  <option value="Moving away">Moving away</option>
-                  <option value="Moving toward me">Moving toward me</option>
-                  <option value="Not sure">Not sure</option>
                 </select>
               </label>
             </div>

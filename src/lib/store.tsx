@@ -86,6 +86,19 @@ function useStoreValue() {
   // Supabase Auth State (for Authority mode)
   const [authorityUser, setAuthorityUser] = useState<User | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
+  const [officerLocation, setOfficerLocation] = useState<{ lat: number; lng: number } | null>(null)
+
+  // Capture officer's location for proximity-based dispatch alerts
+  const captureOfficerLocation = useCallback(() => {
+    if (!navigator.geolocation) return
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setOfficerLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude })
+      },
+      () => { /* ignore or fallback */ },
+      { timeout: 10000, enableHighAccuracy: true }
+    )
+  }, [])
 
   useEffect(() => { try { localStorage.setItem(KEY, JSON.stringify(s)) } catch { /* ignore */ } }, [s])
   useEffect(() => {
@@ -106,30 +119,45 @@ function useStoreValue() {
       return
     }
     setLocationStatus('locating')
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude }
-        setUserLocation(coords)
-        const { place } = findNearestPlaceWithinThreshold(coords.lat, coords.lng, MAX_SNAP_METERS)
-        if (place) {
-          setCurrentZone(place)
-          setCurrentLocationName(`${place.name}, ${place.zone}`)
-        } else {
-          setCurrentZone(null)
-          try {
-            const geo = await reverseGeocode(coords.lat, coords.lng)
-            setCurrentLocationName(`${geo.name}, ${geo.zone}`)
-          } catch {
-            setCurrentLocationName(`Area (${coords.lat.toFixed(3)}, ${coords.lng.toFixed(3)})`)
-          }
+    setCurrentLocationName('Acquiring GPS…')
+
+    const onCoords = async (coords: { lat: number; lng: number }) => {
+      setUserLocation(coords)
+      const { place } = findNearestPlaceWithinThreshold(coords.lat, coords.lng, MAX_SNAP_METERS)
+      if (place) {
+        setCurrentZone(place)
+        setCurrentLocationName(`${place.name}, ${place.zone}`)
+      } else {
+        setCurrentZone(null)
+        try {
+          const geo = await reverseGeocode(coords.lat, coords.lng)
+          setCurrentLocationName(`${geo.name}, ${geo.zone}`)
+        } catch {
+          setCurrentLocationName(`Area (${coords.lat.toFixed(3)}, ${coords.lng.toFixed(3)})`)
         }
-        setLocationStatus('granted')
+      }
+      setLocationStatus('granted')
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => onCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      (err) => {
+        // If high accuracy timed out, retry once with lower accuracy before failing
+        if (err.code === err.TIMEOUT) {
+          navigator.geolocation.getCurrentPosition(
+            (pos) => onCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+            () => {
+              setLocationStatus('denied')
+              setCurrentLocationName('Location access off')
+            },
+            { timeout: 10000, enableHighAccuracy: false, maximumAge: 60000 }
+          )
+        } else {
+          setLocationStatus('denied')
+          setCurrentLocationName('Location access off')
+        }
       },
-      () => {
-        setLocationStatus('denied')
-        setCurrentLocationName('Location access off')
-      },
-      { timeout: 8000, enableHighAccuracy: true }
+      { timeout: 12000, enableHighAccuracy: true, maximumAge: 30000 }
     )
   }, [])
 
@@ -178,32 +206,6 @@ function useStoreValue() {
     fetchAllReports()
   }, [fetchAllReports])
 
-  useEffect(() => {
-    if (SUPABASE_MISSING || !supabase) return
-    const channel = supabase
-      .channel('flags-realtime')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'flags' }, () => {
-        fetchAllReports()
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'alerts' }, () => {
-        getAlerts().then(setServerAlerts).catch(() => {})
-      })
-      .subscribe()
-    return () => { supabase?.removeChannel(channel) }
-  }, [fetchAllReports])
-
-  const analysis = useMemo(() => analyse(allReports), [allReports])
-
-  const myReports = useMemo(
-    () => allReports.filter((r) => s.myFlagIds.includes(r.id)),
-    [allReports, s.myFlagIds]
-  )
-
-  const visible = useMemo(
-    () => allReports.map((r) => (s.statusOverride[r.id] ? { ...r, status: s.statusOverride[r.id] } : r)),
-    [allReports, s.statusOverride]
-  )
-
   const patch = useCallback((p: Partial<Persisted> | ((x: Persisted) => Partial<Persisted>)) =>
     setS((prev) => ({ ...prev, ...(typeof p === 'function' ? p(prev) : p) })), [])
 
@@ -219,6 +221,53 @@ function useStoreValue() {
 
   const notify = useCallback((text: string, tone: Notif['tone']) =>
     patch((x) => ({ notifs: [{ id: 'n' + Date.now() + Math.random(), text, ts: Date.now(), read: false, tone }, ...x.notifs].slice(0, 30) })), [patch])
+
+  useEffect(() => {
+    if (SUPABASE_MISSING || !supabase) return
+    const sb = supabase
+    const channel = sb
+      .channel('flags-realtime')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'flags' }, async (payload) => {
+        fetchAllReports()
+
+        // If an officer is logged in and has location captured, run proximity check (3-5 km threshold)
+        if (authorityUser && officerLocation) {
+          const newRow = payload.new as { zone_id?: string; category?: string; id?: string }
+          if (newRow?.zone_id) {
+            try {
+              const { data: z } = await sb.from('zones').select('name, lat, lng').eq('id', newRow.zone_id).single()
+              if (z?.lat != null && z?.lng != null) {
+                const distMeters = haversineM(officerLocation.lat, officerLocation.lng, z.lat, z.lng)
+                const PROXIMITY_ALERT_RADIUS_METERS = 5000 // 5 km
+                if (distMeters <= PROXIMITY_ALERT_RADIUS_METERS) {
+                  const distKm = (distMeters / 1000).toFixed(1)
+                  const catName = newRow.category?.replace(/_/g, ' ') ?? 'Incident'
+                  toast(`🚨 Nearby incident reported in ${z.name} (~${distKm} km away)`, 'warn')
+                  notify(`🚨 Nearby ${catName} reported in ${z.name} (${distKm} km from your location).`, 'alert')
+                }
+              }
+            } catch { /* non-critical proximity lookup */ }
+          }
+        }
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'alerts' }, () => {
+        getAlerts().then(setServerAlerts).catch(() => {})
+      })
+      .subscribe()
+    return () => { sb.removeChannel(channel) }
+  }, [fetchAllReports, authorityUser, officerLocation, toast, notify])
+
+  const analysis = useMemo(() => analyse(allReports), [allReports])
+
+  const myReports = useMemo(
+    () => allReports.filter((r) => s.myFlagIds.includes(r.id)),
+    [allReports, s.myFlagIds]
+  )
+
+  const visible = useMemo(
+    () => allReports.map((r) => (s.statusOverride[r.id] ? { ...r, status: s.statusOverride[r.id] } : r)),
+    [allReports, s.statusOverride]
+  )
 
   const go = useCallback((r: string) => {
     setRouteState(r)
@@ -304,13 +353,15 @@ function useStoreValue() {
     if (error) throw error
     setAuthorityUser(data.user)
     patch({ role: 'admin' })
+    captureOfficerLocation()
     return data.user
-  }, [patch])
+  }, [patch, captureOfficerLocation])
 
   const signOutAuthority = useCallback(async () => {
     if (!supabase) return
     await supabase.auth.signOut()
     setAuthorityUser(null)
+    setOfficerLocation(null)
     patch({ role: 'citizen' })
     go('')
   }, [patch, go])
@@ -321,7 +372,7 @@ function useStoreValue() {
     serverAlerts,
     loading, busy: loading, connectionError,
     userLocation, currentZone, currentLocationName, locationStatus, refreshLocation,
-    authorityUser, authLoading, signInAuthority, signOutAuthority,
+    authorityUser, authLoading, signInAuthority, signOutAuthority, officerLocation, captureOfficerLocation,
     submitReport, setPatternStatus, setAlert, setReportStatus, notify,
   }
 }
@@ -337,4 +388,4 @@ export const useStore = () => useContext(Ctx)!
 export const patternStatusLabel: Record<PatternStatus, string> = {
   new: 'New', review: 'Under Review', notified: 'Team Notified', patrol: 'Patrol Requested', closed: 'Closed',
 }
-export const SAFETY_TEAMS = ['Campus Security – North', 'Sector 3 Beat Patrol', 'Women Safety Cell', 'Night Patrol Unit B', 'Municipal Lighting Dept.']
+export const SAFETY_TEAMS = ['Municipal Safety Unit', 'Sector 3 Beat Patrol', 'Women Safety Cell', 'Night Patrol Unit B', 'Municipal Lighting Dept.']

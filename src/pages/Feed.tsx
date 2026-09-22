@@ -4,6 +4,7 @@ import { useStore } from '../lib/store'
 import { getPosts, upvotePost, type PostRow } from '../lib/api'
 import { fmtAgo } from '../lib/engine'
 import { Empty, PageHead, Segmented, Skeleton, cx } from '../components/ui'
+import SafetyMap from '../components/SafetyMap'
 
 export default function Feed() {
   const { go, toast } = useStore()
@@ -125,6 +126,22 @@ export default function Feed() {
                 <p className="mt-2 text-sm leading-relaxed line-clamp-3 text-ink">
                   {p.body}
                 </p>
+
+                {p.zones?.lat != null && p.zones?.lng != null && (
+                  <div className="mt-2.5 h-28 w-full overflow-hidden rounded-xl border border-line pointer-events-none">
+                    <SafetyMap
+                      className="h-full w-full pointer-events-none"
+                      reports={[]}
+                      patterns={[]}
+                      heat={false}
+                      center={[p.zones.lat, p.zones.lng]}
+                      zoom={14}
+                      compact={true}
+                      interactive={false}
+                      pickLatLng={{ lat: p.zones.lat, lng: p.zones.lng }}
+                    />
+                  </div>
+                )}
 
                 {p.photo_url && (
                   <div className="mt-2.5 overflow-hidden rounded-xl border border-line bg-sunken">

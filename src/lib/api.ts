@@ -57,7 +57,7 @@ export interface PostRow {
   photo_url: string | null; upvotes: number; flagged_for_review: boolean
   display_name?: string | null
   created_at: string
-  zones?: { name: string; slug: string; zone: string }
+  zones?: { name: string; slug: string; zone: string; lat: number; lng: number }
 }
 export interface CommentRow {
   id: string; post_id: string; reporter_hash: string; body: string
@@ -315,7 +315,7 @@ export async function getLastScoredAt(): Promise<number | null> {
 // ─── Posts ─────────────────────────────────────────────────────────────────────
 export async function getPosts(zoneId?: string, sort: 'recent' | 'trending' = 'recent'): Promise<PostRow[]> {
   const sb = assertSB()
-  let q = sb.from('posts').select('*, zones(name, slug, zone)')
+  let q = sb.from('posts').select('*, zones(name, slug, zone, lat, lng)')
   if (zoneId) q = q.eq('zone_id', zoneId)
   q = sort === 'trending'
     ? q.order('upvotes', { ascending: false })
@@ -327,7 +327,7 @@ export async function getPosts(zoneId?: string, sort: 'recent' | 'trending' = 'r
 
 export async function getPost(id: string): Promise<PostRow> {
   const sb = assertSB()
-  const { data, error } = await sb.from('posts').select('*, zones(name, slug, zone)').eq('id', id).single()
+  const { data, error } = await sb.from('posts').select('*, zones(name, slug, zone, lat, lng)').eq('id', id).single()
   if (error) throw new ApiError('getPost failed', error)
   return data as PostRow
 }
@@ -352,7 +352,7 @@ export async function submitPost(zoneId: string, body: string, photoFile?: File,
     body,
     photo_url,
     display_name: displayName && displayName.trim() ? displayName.trim() : null,
-  }).select('*, zones(name, slug, zone)').single()
+  }).select('*, zones(name, slug, zone, lat, lng)').single()
   if (error) throw new ApiError(error.message || 'submitPost failed', error)
   return data as PostRow
 }

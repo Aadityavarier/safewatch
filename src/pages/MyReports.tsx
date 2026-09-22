@@ -117,7 +117,7 @@ export function Around() {
         <section className="card p-4">
           <div className="mb-3 font-semibold">Emergency contacts</div>
           <ul className="divide-y divide-line text-sm">
-            {[[Siren, 'Emergency (Police/Ambulance)', '112'], [Phone, 'Women Helpline', '181'], [HeartHandshake, 'Cyber Crime Helpline', '1930'], [Building2, 'Campus Security – North', '022-2760-4411']].map(([I, t, n]) => {
+            {[[Siren, 'Emergency (Police/Ambulance)', '112'], [Phone, 'Women Helpline', '181'], [HeartHandshake, 'Cyber Crime Helpline', '1930'], [Building2, 'Municipal Safety Desk', '022-2760-4411']].map(([I, t, n]) => {
               const Ic = I as typeof Phone
               return <li key={t as string} className="flex items-center gap-3 py-2.5"><Ic size={17} className="text-risk" /><span className="flex-1">{t as string}</span><a className="num font-semibold text-brand" href={`tel:${n}`}>{n as string}</a></li>
             })}

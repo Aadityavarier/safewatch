@@ -4,6 +4,7 @@ import { useStore } from '../lib/store'
 import { getPost, getComments, submitComment, upvotePost, type PostRow, type CommentRow } from '../lib/api'
 import { fmtAgo } from '../lib/engine'
 import { Empty, Skeleton, cx } from '../components/ui'
+import SafetyMap from '../components/SafetyMap'
 
 export default function PostDetail({ id }: { id: string }) {
   const { go, toast } = useStore()
@@ -138,6 +139,28 @@ export default function PostDetail({ id }: { id: string }) {
         <p className="text-base leading-relaxed text-ink whitespace-pre-wrap">
           {post.body}
         </p>
+
+        {post.zones?.lat != null && post.zones?.lng != null && (
+          <div className="mt-3 overflow-hidden rounded-2xl border border-line">
+            <div className="bg-sunken px-3 py-1.5 text-xs text-muted flex items-center gap-1.5 font-medium border-b border-line">
+              <MapPin size={13} className="text-brand" />
+              <span>Location area: {post.zones.name}, {post.zones.zone} (zone-level precision)</span>
+            </div>
+            <div className="h-44 w-full">
+              <SafetyMap
+                className="h-full w-full"
+                reports={[]}
+                patterns={[]}
+                heat={false}
+                center={[post.zones.lat, post.zones.lng]}
+                zoom={15}
+                compact={false}
+                interactive={true}
+                pickLatLng={{ lat: post.zones.lat, lng: post.zones.lng }}
+              />
+            </div>
+          </div>
+        )}
 
         {post.photo_url && (
           <div className="overflow-hidden rounded-2xl border border-line bg-sunken">

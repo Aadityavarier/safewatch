@@ -14,7 +14,7 @@ export function EmergencyModal({ open, onClose }: { open: boolean; onClose: () =
   const items = [
     { icon: Siren, t: 'Emergency services', s: 'Police / Ambulance', n: '112', tone: 'bg-risk text-white' },
     { icon: Phone, t: 'Women helpline', s: '24×7 support', n: '181', tone: 'bg-risk/10 text-risk' },
-    { icon: Building2, t: 'Campus security', s: 'North Campus control room', n: '022-2760-4411', tone: 'bg-info/10 text-info' },
+    { icon: Building2, t: 'Public safety desk', s: 'Municipal control room', n: '022-2760-4411', tone: 'bg-info/10 text-info' },
     { icon: UserRound, t: 'Trusted contact', s: 'Aditi (sister)', n: '+91 98•••• 4410', tone: 'bg-brand/10 text-brand' },
   ]
   return (

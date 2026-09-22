@@ -125,7 +125,7 @@ function RoleSwitch() {
         <button onClick={handleAuthorityClick} className={cx('rounded-lg px-2.5 py-1.5', isAdmin ? 'bg-surface shadow-card' : 'text-muted')}>Authority</button>
       </div>
       <Modal open={login} onClose={() => setLogin(false)} title="Authority Sign-in">
-        <p className="-mt-2 mb-4 text-sm text-muted">Restricted to verified campus security, police, and community safety officers.</p>
+        <p className="-mt-2 mb-4 text-sm text-muted">Restricted to verified public safety personnel, law enforcement, and municipal control officers.</p>
         <form className="space-y-3" onSubmit={handleSignIn}>
           <label className="block text-sm font-medium">
             Official Email
@@ -197,7 +197,7 @@ function CitizenShell() {
           ))}
         </nav>
         <button onClick={() => setSos(true)} className="btn mt-auto border border-risk/40 bg-risk/10 text-risk hover:bg-risk/15"><Siren size={16} />Emergency Help</button>
-        <p className="mt-3 text-[11px] leading-snug text-muted">SAFEWATCH helps identify emerging safety patterns earlier. Prototype · SIH 2026 · CX1001</p>
+        <p className="mt-3 text-[11px] leading-snug text-muted">SAFEWATCH helps identify emerging safety patterns earlier. Prototype · CodeX 2026 · CX1001</p>
       </aside>
 
       <div className="flex min-w-0 flex-col">

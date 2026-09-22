@@ -43,7 +43,7 @@ export function applyFilters(reports: Report[], patterns: Pattern[], f: ReturnTy
 }
 
 export default function CitizenMap() {
-  const { visible, patterns, patternStatus, go, userLocation } = useStore()
+  const { visible, patterns, patternStatus, go, userLocation, locationStatus, refreshLocation } = useStore()
   const f = useMapFilters()
   const [open, setOpen] = useState(false)
   const [sel, setSel] = useState<Pattern | null>(null)
@@ -56,6 +56,18 @@ export default function CitizenMap() {
     <div>
       <PageHead eyebrow="Community reports" title="Safety Map" sub="Individual reports are unverified. Detected patterns combine several related reports from different people."
         right={<button onClick={() => setOpen((v) => !v)} className={cx('btn', open ? 'btn-primary' : 'btn-ghost')}><Filter size={16} />Filters{active > 0 && <span className="num rounded-full bg-risk px-1.5 text-[11px] text-white">{active}</span>}</button>} />
+
+      {locationStatus === 'denied' && (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-line bg-surface p-3 text-xs shadow-card">
+          <div className="flex items-center gap-2 text-muted">
+            <span className="h-2 w-2 rounded-full bg-warn" />
+            <span><b>Location access off</b> — map is centered on default demo coordinates. Enable GPS to view safety around you.</span>
+          </div>
+          <button onClick={refreshLocation} className="btn btn-outline !py-1 !px-2.5 text-xs font-semibold">
+            Enable location
+          </button>
+        </div>
+      )}
 
       {open && (
         <div className="card mb-3 grid animate-fadeUp gap-3 p-4 sm:grid-cols-2">

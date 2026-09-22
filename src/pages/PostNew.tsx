@@ -92,7 +92,7 @@ export default function PostNew() {
           <textarea
             value={body}
             onChange={(e) => setBody(e.target.value)}
-            placeholder="e.g. Broken streetlights near the campus gate, recommend walking with friends after 8 PM..."
+            placeholder="e.g. Broken streetlights near the transit station, recommend walking along main road after 8 PM..."
             rows={4}
             maxLength={350}
             className="input w-full resize-none !py-2.5 text-sm"
@@ -148,7 +148,7 @@ export default function PostNew() {
               <input
                 type="text"
                 maxLength={40}
-                placeholder="e.g. Student Volunteer, Rohan S., Library Desk"
+                placeholder="e.g. Neighborhood Watch, Rohan S., Community Lead"
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
                 className="input w-full text-xs !py-1.5"
